@@ -34,7 +34,7 @@ I2C_HandleTypeDef hi2c1;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-// Declara as funções de inicialização do GPIO e do Timer 2
+// Declara as funções de inicialização.
 void SystemClock_Config(void);
 void MX_GPIO_Init(void);
 void MX_TIM2_Init(void);
@@ -64,10 +64,10 @@ int main(void) {
     /* Inicializa o display OLED */
     SSD1306_Init(&hi2c1);
     SSD1306_Clear();
-    SSD1306_SetCursor(0, 0);
-    SSD1306_WriteString("Encoder OLED");
-    SSD1306_SetCursor(0, 16);
-    SSD1306_WriteString("Iniciando...");
+    SSD1306_SetCursor(0, 40);
+    SSD1306_WriteString("ENCODER OLED");
+    SSD1306_SetCursor(0, 20);
+    SSD1306_WriteString("INICIANDO...");
     SSD1306_UpdateScreen();
     HAL_Delay(800);
  
@@ -84,15 +84,15 @@ int main(void) {
         /* Atualiza o display */
         SSD1306_Clear();
  
-        SSD1306_SetCursor(0, 0);
+        SSD1306_SetCursor(0, 40);
         SSD1306_WriteString("== ENCODER ==");
  
         SSD1306_SetCursor(0, 20);
-        sprintf(linha, "Contagem: %d", posicao_encoder);
+        sprintf(linha, "CNT: %d", posicao_encoder);
         SSD1306_WriteString(linha);
  
-        SSD1306_SetCursor(0, 40);
-        sprintf(linha, "Angulo: %.1f", angulo);
+        SSD1306_SetCursor(0, 0);
+        sprintf(linha, "ANG: %.1f", angulo);
         SSD1306_WriteString(linha);
  
         SSD1306_UpdateScreen();
@@ -102,55 +102,99 @@ int main(void) {
         HAL_Delay(100);
     }
 }
+
+/* -------------------------------- LED PC13 -------------------------------- */
+void MX_GPIO_Init(void) {
+    __HAL_RCC_GPIOC_CLK_ENABLE();                        // Habilita a porta C.
  
-/* ----------------- Clock 72 MHz (HSE 8MHz x PLL9) ----------------- */
+    GPIO_InitTypeDef GPIO_InitStruct = {0}; // Cria formulário de configuração.
+    GPIO_InitStruct.Pin = GPIO_PIN_13;       // Define o pino 13 (LED onboard).
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP; // Define como saida push-pull.
+    GPIO_InitStruct.Pull = GPIO_NOPULL;            // Sem pull-up ou pull-down.
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;  // Define a velocidade baixa.
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct); // Entrega o formulário para o HAL.
+}
+
+/* ---------------------- TIM2 Encoder (PA0=A, PA1=B) ----------------------- */
+void MX_TIM2_Init(void) {
+    TIM_Encoder_InitTypeDef sConfig = {0};       // Cria formulário do Encoder.
+    TIM_MasterConfigTypeDef sMasterConfig = {0};   // Cria formulário do Timer.
+ 
+    __HAL_RCC_TIM2_CLK_ENABLE();                         // Habilita o Timer 2.
+    __HAL_RCC_GPIOA_CLK_ENABLE();                        // Habilita a porta A.
+ 
+    htim2.Instance = TIM2;                          // Define o uso do Timer 2.
+    htim2.Init.Prescaler = 0;                                 // Sem prescaler.
+    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;         // Contador crescente.
+    htim2.Init.Period = 65535;              // Contador de 16 bits (0 a 65535).
+    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1; // Sem divisão do clock.
+    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;// Sem preload.
+ 
+    sConfig.EncoderMode = TIM_ENCODERMODE_TI12;  // Ler fase A e B, encoder x4.
+    sConfig.IC1Polarity = TIM_ICPOLARITY_RISING; // Borda de subida referencia.
+    sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI; // Conexão direta do pino.
+    sConfig.IC1Prescaler = TIM_ICPSC_DIV1;         // Sem prescaler no canal 1.
+    sConfig.IC1Filter = 10; // Filtro de 10 ciclos de clock para reduzir ruído.
+    sConfig.IC2Polarity = TIM_ICPOLARITY_RISING; // Borda de subida referencia.  
+    sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI; // Conexão direta do pino.
+    sConfig.IC2Prescaler = TIM_ICPSC_DIV1;         // Sem prescaler no canal 2.
+    sConfig.IC2Filter = 10; // Filtro de 10 ciclos de clock para reduzir ruído.   
+    // Entrega o formulário de configuração do Encoder para o HAL. 
+    // Se falhar, chama o Error_Handler.  
+    if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK) { Error_Handler(); }
+
+    // Configura o Timer 2 como mestre.
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+    HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig);
+ 
+    /* PA0/PA1 em modo Alternate Function Input (correto para timer) */
+    GPIO_InitTypeDef GPIO_InitStruct = {0}; // Cria formulário de configuração.
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;    // Define os pinos 0 e 1.
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;// Define como entrada (modo timer).
+    GPIO_InitStruct.Pull = GPIO_PULLUP;// Ativa pull-up interno, coletor aberto.
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct); // Entrega o formulário para o HAL.
+}
+ 
+/* --------------------- Clock 72 MHz (HSE 8MHz x PLL9) --------------------- */
 void SystemClock_Config(void) {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0}; // Cria formulário de configuração do oscilador.
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0}; // Cria formulário de configuração do clock.
  
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-    RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
-    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;  // Usa o oscilador externo (HSE).
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;                    // Liga o HSE (8 MHz externo).
+    RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;     // Sem divisão do HSE (8 MHz).
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;                    // Liga o HSI (8 MHz interno, usado para PLL)
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;                // Liga o PLL (Phase-Locked Loop) para multiplicar a frequência.
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;        // Usa o HSE como fonte do PLL.
+    RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;                // Multiplica a frequência do HSE por 9 (8 MHz x 9 = 72 MHz).
+    // Entrega o formulário de configuração do oscilador para o HAL.
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) { Error_Handler(); }
  
+    // Reconfigura os 4 clocks do sistema: HCLK, SYSCLK, PCLK1 e PCLK2.
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                   RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;   // Usa o PLL como fonte do SYSCLK (72 MHz).
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;          // Sem divisão do AHB (HCLK = 72 MHz).
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;           // Divide o HCLK por 2 para o APB1 (PCLK1 = 36 MHz).
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;           // Sem divisão do APB2 (PCLK2 = 72 MHz).
+    // Entrega o formulário de configuração do clock para o HAL.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) { Error_Handler(); }
 }
  
-/* ----------------- LED PC13 ----------------- */
-void MX_GPIO_Init(void) {
-    __HAL_RCC_GPIOC_CLK_ENABLE();
- 
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = GPIO_PIN_13;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-}
- 
-/* ----------------- I2C1 (PB6=SCL, PB7=SDA) p/ OLED ----------------- */
+/* -------------------- I2C1 (PB6=SCL, PB7=SDA) p/ OLED --------------------- */
 void MX_I2C1_Init(void) {
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_I2C1_CLK_ENABLE();
  
     GPIO_InitTypeDef GPIO_InitStruct = {0};
     GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;       /* I2C = open drain */
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;               /* I2C = open drain */
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
  
     hi2c1.Instance = I2C1;
-    hi2c1.Init.ClockSpeed = 400000;               /* 400 kHz (fast mode) */
+    hi2c1.Init.ClockSpeed = 400000;                    /* 400 kHz (fast mode) */
     hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
     hi2c1.Init.OwnAddress1 = 0;
     hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -159,44 +203,6 @@ void MX_I2C1_Init(void) {
     hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
     hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
     if (HAL_I2C_Init(&hi2c1) != HAL_OK) { Error_Handler(); }
-}
- 
-/* ----------------- TIM2 Encoder (PA0=A, PA1=B) ----------------- */
-void MX_TIM2_Init(void) {
-    TIM_Encoder_InitTypeDef sConfig = {0};
-    TIM_MasterConfigTypeDef sMasterConfig = {0};
- 
-    __HAL_RCC_TIM2_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
- 
-    htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 0;
-    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 65535;
-    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
- 
-    sConfig.EncoderMode = TIM_ENCODERMODE_TI12;   /* quadratura x4 */
-    sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
-    sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
-    sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-    sConfig.IC1Filter = 10;
-    sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
-    sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-    sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-    sConfig.IC2Filter = 10;
-    if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK) { Error_Handler(); }
- 
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig);
- 
-    /* PA0/PA1 em modo Alternate Function Input (correto para timer) */
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_INPUT;    /* <-- corrigido (era INPUT) */
-    GPIO_InitStruct.Pull = GPIO_PULLUP;           /* pull-up p/ encoder NPN */
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 }
  
 void Error_Handler(void) {

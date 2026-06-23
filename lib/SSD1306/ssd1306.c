@@ -104,7 +104,7 @@ void SSD1306_Init(I2C_HandleTypeDef *hi2c) {
     ssd_cmd(0xAE);              /* display off */
     ssd_cmd(0x20); ssd_cmd(0x00); /* memory mode: horizontal */
     ssd_cmd(0xB0);
-    ssd_cmd(0xC8);             /* COM scan dir remap */
+    ssd_cmd(0xC0);             /* COM scan dir remap */
     ssd_cmd(0x00); ssd_cmd(0x10);
     ssd_cmd(0x40);             /* start line 0 */
     ssd_cmd(0x81); ssd_cmd(0xFF); /* contrast */
