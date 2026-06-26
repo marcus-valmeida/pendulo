@@ -1,34 +1,21 @@
 /**
   ******************************************************************************
   * @file           : main.c  
-  * @brief          : Leitura de Encoder NPN (Modo Hardware) com Sanity Check
-  *
-  * COMO USAR ESTE TESTE:
-  * - O LED (PC13) vai piscar RAPIDO (100ms) -> 5 piscadas por segundo.
-  * - Se apos gravar o LED piscar RAPIDO, a gravacao funcionou perfeitamente.
-  * - Se o LED continuar piscando LENTO, a gravacao falhou e o chip esta 
-  * rodando um firmware antigo ou de fabrica.
-  *
-  * LIGACOES:
-  * Encoder:  Fase A -> PA0 | Fase B -> PA1 | VCC -> 5V | GND -> GND
-  * (pull-up interno ativado; encoder NPN coletor aberto)
-  * OLED:     SCL -> PB6 | SDA -> PB7 | VCC -> 3.3V | GND -> GND
-  * LED:      onboard PC13 (heartbeat)
+  * @brief          : Calibração de Encoder com MPU6050 (Foco no Pitch)
+  * Zero do MPU = 90° do Encoder
   ******************************************************************************
   */
 
-/* Inclui o seu módulo criado */
 #include "aeropendulo.h"
+#include "MPU6050.h"
 #include <stdio.h>
+#include <math.h>
 
-// Mantém o tempo rodando para o HAL_Delay funcionar
-// (Mantido na main pois é uma interrupção de sistema)
-void SysTick_Handler(void) {
+void SysTick_Handler(void) { 
     HAL_IncTick(); 
 }
 
 int main(void) {
-    /* 1. Inicializações do Hardware (funções puxadas de aeropendulo.h) */
     HAL_Init();
     SystemClock_Config();   
  
@@ -36,51 +23,79 @@ int main(void) {
     MX_I2C1_Init();
     MX_TIM2_Init();
  
-    /* 2. Inicialização dos Periféricos Específicos */
-    /* Liga o Timer 2 em modo Encoder */
-    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
- 
-    /* Inicializa o display OLED */
     SSD1306_Init(&hi2c1);
     SSD1306_Clear();
-    SSD1306_SetCursor(0, 40);
-    SSD1306_WriteString("ENCODER OLED");
     SSD1306_SetCursor(0, 20);
-    SSD1306_WriteString("INICIANDO...");
+    SSD1306_WriteString("LIGANDO SENSOR...");
     SSD1306_UpdateScreen();
-    HAL_Delay(800);
+    
+    MPU6050_init();
+    HAL_Delay(500); 
+
+    float Ax, Ay, Az;
+    float pitch_inicial = 0.0f;
+    float angulo_inicial = 0.0f;
+    int16_t offset_encoder = 0;
+
+    /* --- 1. CALIBRAÇÃO INICIAL DO PITCH --- */
+    MPU6050_Read_Accel(&Ax, &Ay, &Az);
+
+    /* Calcula o Pitch (Inclinação Frontal/Traseira usando o eixo X)
+     * Na posição reta, isso resultará em 0 graus.
+     */
+    pitch_inicial = atan2(-Ax, sqrt((Ay * Ay) + (Az * Az))) * (180.0f / 3.14159265f);
+    
+    /* Transforma o "0" do MPU em "90" para o sistema. */
+    angulo_inicial = pitch_inicial + 90.0f;
+    
+    /* Converte esse novo ângulo inicial para pulsos do encoder */
+    offset_encoder = (int16_t)((angulo_inicial * ENCODER_RESOLUCAO) / 360.0f);
+
+    /* Inicia o Encoder */
+    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
  
-    /* 3. Variáveis Locais do Loop */
-    int16_t  posicao_encoder = 0;
-    float    angulo = 0.0f;
-    char     linha[24];
+    int16_t posicao_bruta = 0;
+    int16_t posicao_calibrada = 0;
+    float pitch_live = 0.0f;
+    char linha[24];
  
-    /* 4. Loop Principal da Aplicação */
+    float angulo_bruto = 0.0f;
+    float angulo_calibrado = 0.0f;
+
     while (1) {
-        /* Le o contador de hardware (cast int16_t para permitir valor negativo) */
-        posicao_encoder = -(int16_t)__HAL_TIM_GET_COUNTER(&htim2);
-        
-        /* Note que usamos a constante definida no seu aeropendulo.h */
-        angulo = ((float)posicao_encoder * 360.0f) / ENCODER_RESOLUCAO;
- 
-        /* Atualiza o display */
+        /* A. Leitura do Encoder Físico (Bruto) */
+        posicao_bruta = -(int16_t)__HAL_TIM_GET_COUNTER(&htim2);
+        angulo_bruto = ((float)posicao_bruta * 360.0f) / ENCODER_RESOLUCAO;
+
+        /* B. Aplicação da Calibração (Offset do MPU embute os +90 graus) */
+        posicao_calibrada = posicao_bruta + offset_encoder;
+        angulo_calibrado = ((float)posicao_calibrada * 360.0f) / ENCODER_RESOLUCAO;
+
+        /* C. Lê o MPU6050 continuamente para monitoramento (opcional, só para teste) */
+        MPU6050_Read_Accel(&Ax, &Ay, &Az);
+        pitch_live = atan2(-Ax, sqrt((Ay * Ay) + (Az * Az))) * (180.0f / 3.14159265f);
+
+        /* D. Atualiza o OLED */
         SSD1306_Clear();
- 
-        SSD1306_SetCursor(0, 40);
-        SSD1306_WriteString("== ENCODER ==");
- 
-        SSD1306_SetCursor(0, 20);
-        sprintf(linha, "CNT: %d", posicao_encoder);
-        SSD1306_WriteString(linha);
- 
+        
         SSD1306_SetCursor(0, 0);
-        sprintf(linha, "ANG: %.1f", angulo);
+        sprintf(linha, "PITCH: %.1f", pitch_live);
+        SSD1306_WriteString(linha); 
+        
+
+        /* Mostra o valor REAL (Físico) do hardware do encoder */
+        SSD1306_SetCursor(0, 20);
+        sprintf(linha, "BRUTO: %.1f", angulo_bruto); 
         SSD1306_WriteString(linha);
- 
+        
+        /* Mostra o valor CALIBRADO (Com a referência de 90° do MPU) */
+        SSD1306_SetCursor(0, 40);
+        sprintf(linha, "CALIB: %.1f", angulo_calibrado); 
+        SSD1306_WriteString(linha);
+
         SSD1306_UpdateScreen();
  
-        /* Heartbeat */
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay(100);
+        HAL_Delay(50); 
     }
 }
