@@ -3,7 +3,6 @@
   * @file    hardware.h
   * @brief   Configuracao de hardware do Aeropendulo - declaracoes.
   *          Aqui ficam os prototipos das funcoes que configuram o chip.
-  *          A implementacao (o "como") fica em hardware.c.
   ******************************************************************************
   */
 #ifndef HARDWARE_H
@@ -17,6 +16,8 @@
  * ------------------------------------------------------------------------- */
 extern TIM_HandleTypeDef htim2;   // Timer 2 — modo Encoder (PA0/PA1)
 extern I2C_HandleTypeDef hi2c1;   // I2C1 — display OLED (PB6/PB7)
+extern TIM_HandleTypeDef htim3;   // Timer 3 — PWM para o driver HW-517 (PA6)
+extern ADC_HandleTypeDef hadc1;   // ADC1 — leitura do potenciometro (PA4)
 
 /* ---------------------------------------------------------------------------
  * API de hardware — unica funcao que a main.c precisa chamar.
