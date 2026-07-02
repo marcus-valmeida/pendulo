@@ -18,20 +18,21 @@
 extern TIM_HandleTypeDef htim2;
 extern I2C_HandleTypeDef hi2c1;
 
+// Resolucao: 360 pulsos/volta x 4 (quadratura TI12) = 1440 contagens/volta.
 static const float RESOLUCAO_ENCODER = 1440.0f;
 
 // Offset calculado uma unica vez na inicializacao pelo MPU.
-// Depois disso nunca e alterado.
 static int16_t offset_inicial = 0;
 
 static char linha[24];
 /* USER CODE END PV */
 
-/* Prototipos das funcoes privadas ------------------------------------------*/
+/* Prototipos privados ------------------------------------------------------*/
 static float calcular_pitch(float Ax, float Ay, float Az);
 
 /* -------- Funcao privada: calcula pitch a partir dos dados do MPU --------- */
 static float calcular_pitch(float Ax, float Ay, float Az) {
+    // Sensor de cabeca para baixo: desloca -180 para 0 e corrige o sentido.
     float pitch_bruto = atan2f(-Ax, Az) * (180.0f / 3.14159265f);
     float pitch_corrigido = -(pitch_bruto + 180.0f);
 
@@ -55,7 +56,7 @@ void Aeropendulo_Init(void) {
     HAL_Delay(800);
 }
 
-/* ---------- Inicializacao do MPU + calibracao do encoder ------------------ */
+/* ---------- Inicializacao do MPU + calibracao do encoder ----------------- */
 void Aeropendulo_InitMPU(void) {
     float Ax, Ay, Az;
 
@@ -73,11 +74,9 @@ void Aeropendulo_InitMPU(void) {
     MPU6050_Read_Accel(&Ax, &Ay, &Az);
     float angulo_mpu = calcular_pitch(Ax, Ay, Az);
 
-    // Converte o angulo do MPU em pulsos do encoder.
-    // Esse valor sera somado a cada leitura do encoder como offset inicial.
+    // Converte o angulo do MPU em pulsos e guarda como offset inicial.
     offset_inicial = (int16_t)((angulo_mpu * RESOLUCAO_ENCODER) / 360.0f);
 
-    // Confirmacao no display.
     SSD1306_Clear();
     SSD1306_SetCursor(0, 0);
     SSD1306_WriteString("PRONTO!");
@@ -90,8 +89,7 @@ void Aeropendulo_InitMPU(void) {
 
 /* ----------------------- Leitura bruta do encoder ------------------------- */
 int16_t Aeropendulo_LerContagem(void) {
-    // Aplica o offset calculado na inicializacao.
-    // Depois da calibracao, o encoder parte do angulo real medido pelo MPU.
+    // Aplica o offset calculado na inicializacao (encoder parte do angulo real).
     return (int16_t)__HAL_TIM_GET_COUNTER(&htim2) + offset_inicial;
 }
 
@@ -108,27 +106,33 @@ float Aeropendulo_LerPitch(void) {
     return calcular_pitch(Ax, Ay, Az);
 }
 
-/* ------------------ Atualiza leitura e mostra no display ------------------ */
-void Aeropendulo_Atualizar(void) {
-    // Encoder ja parte do angulo correto (offset aplicado em LerContagem).
-    int16_t contagem = Aeropendulo_LerContagem();
-    float   angulo   = ((float)contagem * 360.0f) / RESOLUCAO_ENCODER;
-
-    // MPU somente para monitoramento visual — nao altera nada apos o inicio.
-    float pitch = Aeropendulo_LerPitch();
-
+/* ------------------ Mostra os dados do controle no display --------------- */
+void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
+                                 int32_t pwm, uint8_t travado) {
     SSD1306_Clear();
 
+    // Linha 1 — alvo desejado (ou aviso de desequilibrio)
     SSD1306_SetCursor(0, 0);
-    sprintf(linha, "MPU: %.1f    ", pitch);
+    if (travado) {
+        SSD1306_WriteString("! DESEQUILIBRIO !");
+    } else {
+        sprintf(linha, "ALVO: %.1f", alvo);
+        SSD1306_WriteString(linha);
+    }
+
+    // Linha 2 — angulo atual do encoder
+    SSD1306_SetCursor(0, 16);
+    sprintf(linha, "ANG:  %.1f", angulo);
     SSD1306_WriteString(linha);
 
-    SSD1306_SetCursor(0, 20);
-    sprintf(linha, "CNT: %d      ", contagem);
+    // Linha 3 — angulo do MPU
+    SSD1306_SetCursor(0, 32);
+    sprintf(linha, "MPU:  %.1f", mpu);
     SSD1306_WriteString(linha);
 
-    SSD1306_SetCursor(0, 40);
-    sprintf(linha, "ANG: %.1f GR  ", angulo);
+    // Linha 4 — tensao (PWM) aplicada no motor
+    SSD1306_SetCursor(0, 48);
+    sprintf(linha, "PWM:  %ld", pwm);
     SSD1306_WriteString(linha);
 
     SSD1306_UpdateScreen();

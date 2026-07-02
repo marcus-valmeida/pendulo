@@ -15,67 +15,68 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-// Handler do ADC (potenciometro) — definido em main.c.
 extern ADC_HandleTypeDef hadc1;
 
 /* ============================ AJUSTES DO PID ==============================
- * Ganhos iniciais vindos do TCC (planta identica, motor 5V/2A).
- * Ajuste fino na bancada: se oscilar, baixe Kp ou suba Kd.
+ * Ganhos iniciais do TCC. Ajuste na bancada conforme o comportamento.
  * ------------------------------------------------------------------------- */
-static const float Kp = 2.6f;     // proporcional — forca proporcional ao erro
+static const float Kp = 4.0f;     // proporcional — forca proporcional ao erro
 static const float Ki = 1.0f;     // integral — elimina erro de regime
-static const float Kd = 0.9f;     // derivativo — freia perto do alvo (anti-supapo)
+static const float Kd = 1.5f;     // derivativo — freia perto do alvo (anti-supapo)
 static const float N  = 50.0f;    // filtro do derivativo (evita ruido no D)
 
-// Periodo do ciclo de controle em segundos (deve casar com o HAL_Delay do main).
-static const float DT = 0.020f;   // 20 ms = 50 Hz
+static const float DT = 0.020f;   // 20 ms = 50 Hz (casa com o HAL_Delay do main)
 
-/* ======================= POTENCIA DE SUSTENTACAO =========================
- * Mesmo parado no alvo, a gravidade puxa o pendulo. Precisamos de uma
- * potencia base para "flutuar". Ajuste conforme o teste de malha aberta:
- * o PWM em que a helice comecou a levantar o pendulo.
- * ------------------------------------------------------------------------- */
-static const float POTENCIA_BASE = 380.0f;  // ponto de partida (0-1000)
+/* ======================= POTENCIA DE SUSTENTACAO ========================= */
+static const float POTENCIA_BASE = 380.0f;  // PWM base p/ sustentar (0-1000)
 
-/* =========================== LIMITES DE SAIDA ============================
- * PWM do projeto vai de 0 a 1000 (nao 0-255 como no Arduino do TCC).
- * ------------------------------------------------------------------------- */
+/* =========================== LIMITES DE SAIDA =========================== */
 static const float PWM_MIN = 0.0f;
 static const float PWM_MAX = 1000.0f;
 
-/* ======================= RAMPA SUAVE DO SETPOINT =========================
- * O alvo nao "pula" para o valor final — ele caminha devagar ate la.
- * Assim a partida e suave, como na rampa do teste de malha aberta.
+/* ================= LIMITE DE AUTORIDADE DO PID (NOVO) ====================
+ * Este e o ponto-chave para evitar o "360 graus" por supapo.
+ * O PID (P+I+D) NUNCA pode empurrar mais que este limite alem da base.
+ * Assim, mesmo com erro gigante, o motor nao recebe um chute violento —
+ * a potencia fica sempre proxima da media que ja funcionava bem.
  * ------------------------------------------------------------------------- */
-static const float RAMPA_SETPOINT = 0.5f;   // graus por ciclo (0.5 * 50Hz = 25 graus/s)
+static const float LIMITE_ACAO_PID = 300.0f;  // teto do |P+I+D| (ajuste fino)
+
+/* ======================= RAMPA SUAVE DO SETPOINT ======================== */
+static const float RAMPA_SETPOINT = 1.0f;   // graus por ciclo (1.0 * 50Hz = 50 graus/s)
+
+/* ================ ZONA DE PARTIDA — ANTI-SUPAPO INICIAL (NOVO) ===========
+ * Durante os primeiros ciclos, seguramos o integral para ele nao acumular
+ * e dar aquele "chute" inicial (o leve supapo que voce notou na partida).
+ * ------------------------------------------------------------------------- */
+static const float INTEGRAL_MAX = 200.0f;   // teto do acumulo integral (era PWM_MAX)
 
 /* ====================== ESTAGIOS DE SEGURANCA (modulo) ===================
- * Valem para os dois lados (+ e -) usando fabsf(angulo).
+ * ALTERADO conforme pedido:
+ *   |ang| >= 150  -> corta 20% da potencia (antes era 120)
+ *   |ang| >= 170  -> desliga o motor        (antes era 150)
+ *   |ang| >= 180  -> trava por desequilibrio
  * ------------------------------------------------------------------------- */
-static const float LIM_REDUZIR   = 120.0f;  // corta 20% da potencia
-static const float LIM_DESLIGAR  = 150.0f;  // desliga o motor
+static const float LIM_REDUZIR   = 150.0f;  // corta 20% (era 120)
+static const float LIM_DESLIGAR  = 170.0f;  // desliga    (era 150)
 static const float LIM_TRAVAR    = 180.0f;  // desequilibrio — trava ate reset
 static const float FATOR_REDUCAO = 0.80f;   // mantem 80% (corta 20%)
 
-/* ===================== MAPEAMENTO DO POTENCIOMETRO =======================
- * Potenciometro multivoltas 5k:
- *   0    ohm (ADC ~0)    -> -90 graus
- *   4.7k ohm (ADC ~4095) -> +90 graus
- * ------------------------------------------------------------------------- */
+/* ===================== MAPEAMENTO DO POTENCIOMETRO ======================= */
 static const float POT_ANG_MIN = -90.0f;
 static const float POT_ANG_MAX =  90.0f;
 static const float ADC_MAX     = 4095.0f;
 
 /* --------------------------- Estado interno ------------------------------ */
 static FonteSetpoint fonte_setpoint = SETPOINT_CODIGO;
-static float alvo_final   = 0.0f;   // alvo desejado (destino da rampa)
-static float alvo_rampa   = 0.0f;   // alvo instantaneo (segue a rampa)
-static float integral     = 0.0f;   // acumulador do termo integral
-static float deriv_estado = 0.0f;   // estado do filtro derivativo
-static float erro_anterior = 0.0f;  // erro do ciclo anterior
-static float erro_atual   = 0.0f;   // erro deste ciclo (para getter)
-static int32_t saida_pwm  = 0;      // PWM aplicado (para getter)
-static uint8_t travado    = 0;      // 1 = travado por desequilibrio
+static float alvo_final    = 0.0f;
+static float alvo_rampa    = 0.0f;
+static float integral      = 0.0f;
+static float deriv_estado  = 0.0f;
+static float erro_anterior = 0.0f;
+static float erro_atual    = 0.0f;
+static int32_t saida_pwm   = 0;
+static uint8_t travado     = 0;
 /* USER CODE END PV */
 
 /* Prototipos privados ------------------------------------------------------*/
@@ -110,12 +111,11 @@ static float ler_setpoint_potenciometro(void) {
 
     HAL_ADC_Start(&hadc1);
     if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
-        adc_val = (float)HAL_ADC_GetValue(&hadc1);   // 0 a 4095
+        adc_val = (float)HAL_ADC_GetValue(&hadc1);
     }
     HAL_ADC_Stop(&hadc1);
 
-    // Regra de tres linear: 0 -> -90 ; 4095 -> +90
-    float faixa = POT_ANG_MAX - POT_ANG_MIN;         // 180 graus
+    float faixa = POT_ANG_MAX - POT_ANG_MIN;
     return POT_ANG_MIN + (adc_val / ADC_MAX) * faixa;
 }
 
@@ -128,29 +128,27 @@ static float saturar(float valor, float minimo, float maximo) {
 
 /* ====================== CICLO PRINCIPAL DO PID =========================== */
 void PID_Atualizar(void) {
-    // ---- 0. Se travou por desequilibrio, motor fica desligado ate reset ----
+    // ---- 0. Se travou por desequilibrio, motor desligado ate reset ----
     if (travado) {
         Motor_Parar();
         saida_pwm = 0;
         return;
     }
 
-    // ---- 1. Le o angulo atual do sistema (encoder ja calibrado) ----
+    // ---- 1. Le o angulo atual (encoder ja calibrado) ----
     float angulo_atual = Aeropendulo_LerAngulo();
-
-    // ---- 2. SEGURANCA (avaliada em modulo, vale p/ + e -) ----
     float ang_abs = fabsf(angulo_atual);
 
-    // Estagio 3 — desequilibrio: passou de 180. Trava tudo.
+    // ---- 2. SEGURANCA em modulo (vale p/ + e -) ----
+    // Estagio 3 — desequilibrio: passou de 180. Trava.
     if (ang_abs >= LIM_TRAVAR) {
         Motor_Parar();
         saida_pwm = 0;
-        integral  = 0.0f;   // limpa memoria para nao "chutar" ao destravar
+        integral  = 0.0f;
         travado   = 1;
         return;
     }
-
-    // Estagio 2 — passou de 150. Desliga o motor (mas nao trava).
+    // Estagio 2 — passou de 170. Desliga (nao trava).
     if (ang_abs >= LIM_DESLIGAR) {
         Motor_Parar();
         saida_pwm = 0;
@@ -158,50 +156,52 @@ void PID_Atualizar(void) {
         return;
     }
 
-    // ---- 3. Rampa suave do setpoint (o alvo caminha devagar) ----
-    // Escolhe a fonte do alvo final.
+    // ---- 3. Rampa suave do setpoint ----
     if (fonte_setpoint == SETPOINT_POTENCIOMETRO) {
         alvo_final = ler_setpoint_potenciometro();
     }
-    // Move alvo_rampa em direcao a alvo_final, no maximo RAMPA_SETPOINT por ciclo.
     float delta_alvo = alvo_final - alvo_rampa;
     if (delta_alvo >  RAMPA_SETPOINT) delta_alvo =  RAMPA_SETPOINT;
     if (delta_alvo < -RAMPA_SETPOINT) delta_alvo = -RAMPA_SETPOINT;
     alvo_rampa += delta_alvo;
 
-    // ---- 4. Calcula o erro ----
+    // ---- 4. Erro ----
     erro_atual = alvo_rampa - angulo_atual;
 
-    // ---- 5. Termo Proporcional ----
+    // ---- 5. Proporcional ----
     float P = Kp * erro_atual;
 
-    // ---- 6. Termo Integral com anti-windup ----
-    // So acumula se a saida nao estiver saturada (evita "supapo" por acumulo).
+    // ---- 6. Integral com anti-windup reforcado ----
     integral += Ki * erro_atual * DT;
-    // Limita o integral para nao explodir.
-    integral = saturar(integral, -PWM_MAX, PWM_MAX);
+    integral = saturar(integral, -INTEGRAL_MAX, INTEGRAL_MAX); // teto menor = menos supapo
     float I = integral;
 
-    // ---- 7. Termo Derivativo com filtro (N) ----
-    // Filtro passa-baixa no derivativo: suaviza ruido do encoder.
-    // deriv_estado segue a derivada do erro de forma filtrada.
+    // ---- 7. Derivativo com filtro (N) ----
     float deriv_erro = (erro_atual - erro_anterior) / DT;
     deriv_estado += N * DT * (deriv_erro - deriv_estado);
     float D = Kd * deriv_estado;
     erro_anterior = erro_atual;
 
-    // ---- 8. Soma PID + potencia base de sustentacao ----
-    float saida = P + I + D + POTENCIA_BASE;
+    // ---- 8. Acao de controle do PID ----
+    float acao_pid = P + I + D;
 
-    // ---- 9. Saturacao final (0 a 1000) ----
+    // ---- 9. LIMITE DE AUTORIDADE (NOVO) — resolve o "360 graus" ----
+    // Nao importa quao grande fique o erro: o PID nunca empurra alem
+    // deste teto. Isso impede o chute violento que rodava o pendulo.
+    acao_pid = saturar(acao_pid, -LIMITE_ACAO_PID, LIMITE_ACAO_PID);
+
+    // ---- 10. Soma com a base de sustentacao ----
+    float saida = acao_pid + POTENCIA_BASE;
+
+    // ---- 11. Saturacao final (0 a 1000) ----
     saida = saturar(saida, PWM_MIN, PWM_MAX);
 
-    // ---- 10. Estagio 1 de seguranca — reducao de 20% acima de 120 ----
+    // ---- 12. Estagio 1 de seguranca — reduz 20% acima de 150 ----
     if (ang_abs >= LIM_REDUZIR) {
-        saida *= FATOR_REDUCAO;   // mantem 80% da potencia calculada
+        saida *= FATOR_REDUCAO;
     }
 
-    // ---- 11. Aplica no motor ----
+    // ---- 13. Aplica no motor ----
     saida_pwm = (int32_t)saida;
     Motor_SetPWM(saida_pwm);
 }
