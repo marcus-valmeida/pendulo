@@ -14,10 +14,12 @@ int16_t Accel_X_RAW, Accel_Y_RAW, Accel_Z_RAW;
 int16_t Gyro_X_RAW, Gyro_Y_RAW, Gyro_Z_RAW;
 //float Ax, Ay, Az, Gx, Gy, Gz;
 extern I2C_HandleTypeDef hi2c1;  // change your handler here accordingly
+
 void MPU6050_init(void)
 {
 	uint8_t check,data;
 	HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, WHO_AM_I_REG, 1, &check, 1 , 1000);
+
 	if (check == 104)
 	{
 		//Power management register write all 0's to wake up sensor
@@ -37,7 +39,6 @@ void MPU6050_init(void)
 }
 
 //Function with multiple return using pointer
-
 void MPU6050_Read_Accel (float* Ax, float* Ay, float* Az)
 {
 	uint8_t Rec_Data[6];

@@ -24,10 +24,10 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-TIM_HandleTypeDef htim2;   // Timer 2 — modo Encoder (PA0/PA1)
-I2C_HandleTypeDef hi2c1;   // I2C1 — OLED e MPU6050 (PB6/PB7)
-TIM_HandleTypeDef htim3;   // Timer 3 — PWM para o HW-517 (PA6)
-ADC_HandleTypeDef hadc1;   // ADC1 — leitura do potenciometro (PA4)
+TIM_HandleTypeDef htim2;                // Timer 2 — modo Encoder (PA0/PA1)
+I2C_HandleTypeDef hi2c1;                // I2C1 — OLED e MPU6050 (PB6/PB7)
+TIM_HandleTypeDef htim3;                // Timer 3 — PWM para o HW-517 (PA6)
+ADC_HandleTypeDef hadc1;                // ADC1 — leitura do potenciometro (PA4)
 /* USER CODE END PV */
 
 /* Private user code ---------------------------------------------------------*/
@@ -39,18 +39,23 @@ void SysTick_Handler(void) {
 
 /* ---------------------------------------------------------------------------
  * Ponto de entrada do programa.
- * ------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------*/
 int main(void) {
     HAL_Init();
-    Hardware_Init();         // clock, GPIO, TIM2, I2C, TIM3 (PWM), ADC1
-    Aeropendulo_Init();      // liga encoder e prepara o display
-    Aeropendulo_InitMPU();   // inicializa MPU6050 e calibra o encoder
-    PID_Init();              // zera a memoria do controlador
+    Hardware_Init();                    // clock, GPIO, TIM2, I2C, TIM3, ADC1
+    Aeropendulo_Init();                 // liga encoder e prepara o display
+    Aeropendulo_InitMPU();              // inicializa MPU6050 e calibra o encoder
+
+    while (1) {
+      
+    }
+}
 
     /* -----------------------------------------------------------------
      * ESCOLHA A FONTE DO ALVO:
      * ------------------------------------------------------------- */
     // OPCAO A — alvo fixo definido no codigo:
+    /*
     PID_SetFonte(SETPOINT_CODIGO);
     PID_SetAlvo(30.0f);        // buscar 30 graus
 
@@ -70,4 +75,4 @@ int main(void) {
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);   // heartbeat
         HAL_Delay(20);                            // 50 Hz — casa com DT do PID
     }
-}
+}*/

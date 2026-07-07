@@ -106,6 +106,38 @@ float Aeropendulo_LerPitch(void) {
     return calcular_pitch(Ax, Ay, Az);
 }
 
+/* ------------------------ Leitura de voltas do encoder --------------------
+ * Uma volta = RESOLUCAO_ENCODER contagens (1440). Divisao com casas
+ * decimais indica volta parcial (ex: 1.25 = uma volta e um quarto).
+ * --------------------------------------------------------------------------*/
+float Aeropendulo_LerVoltas(void) {
+    int16_t contagem = Aeropendulo_LerContagem();
+    return (float)contagem / RESOLUCAO_ENCODER;
+}
+
+/* ------------- Mostra SOMENTE mpu, angulo e voltas (modo teste) ----------- */
+void Aeropendulo_MostrarSensores(void) {
+    float mpu    = Aeropendulo_LerPitch();
+    float angulo = Aeropendulo_LerAngulo();
+    float voltas = Aeropendulo_LerVoltas();
+
+    SSD1306_Clear();
+
+    SSD1306_SetCursor(0, 0);
+    sprintf(linha, "MPU:    %.1f", mpu);
+    SSD1306_WriteString(linha);
+
+    SSD1306_SetCursor(0, 20);
+    sprintf(linha, "ANG:    %.1f", angulo);
+    SSD1306_WriteString(linha);
+
+    SSD1306_SetCursor(0, 40);
+    sprintf(linha, "VOLTAS: %.2f", voltas);
+    SSD1306_WriteString(linha);
+
+    SSD1306_UpdateScreen();
+}
+
 /* ------------------ Mostra os dados do controle no display --------------- */
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado) {

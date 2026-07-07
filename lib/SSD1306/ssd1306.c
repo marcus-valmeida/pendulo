@@ -128,7 +128,7 @@ void SSD1306_Clear(void) {
     memset(ssd_buffer, 0x00, sizeof(ssd_buffer));
     cursor_x = 0;
     cursor_y = 0;
-}
+}   
 
 void SSD1306_SetCursor(uint8_t x, uint8_t y) {
     cursor_x = x;
