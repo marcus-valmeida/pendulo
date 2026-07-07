@@ -38,10 +38,17 @@ typedef enum {
     MODO_MALHA_FECHADA                                                          // Controlador PID busca e mantem um angulo alvo.
 } ModoOperacao;
  
-static const ModoOperacao MODO_ATUAL = MODO_MALHA_ABERTA;
+static const ModoOperacao MODO_ATUAL = MODO_MALHA_FECHADA;
  
+// Aplicando a fórmula: C ≈ (0.710 + 0.671 + 0.677 + 0.664) / 4 = 0.680
+static const int32_t PWM_15_GRAUS = 87;
+static const int32_t PWM_30_GRAUS = 160;
+static const int32_t PWM_45_GRAUS = 225;
+static const int32_t PWM_60_GRAUS = 275;
+static const int32_t PWM_75_GRAUS = 317;
+static const int32_t PWM_90_GRAUS = 330;
 // Usado somente em MODO_MALHA_ABERTA: PWM fixo aplicado ao motor (0-1000).
-static const int32_t PWM_TESTE_MALHA_ABERTA = 400;
+static const int32_t PWM_TESTE_MALHA_ABERTA = 100;
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
@@ -76,9 +83,9 @@ int main(void) {
 
         if (MODO_ATUAL == MODO_MALHA_ABERTA) {
             // --------- ENSAIO DE MALHA ABERTA ---------
-            Motor_SetPWM(PWM_TESTE_MALHA_ABERTA);
-            float tensao = Motor_PWM_Para_Tensao(PWM_TESTE_MALHA_ABERTA);
-            Aeropendulo_MostrarMalhaAberta(PWM_TESTE_MALHA_ABERTA, tensao);
+            Motor_SetPWM(PWM_45_GRAUS);
+            float tensao = Motor_PWM_Para_Tensao(PWM_45_GRAUS);
+            Aeropendulo_MostrarMalhaAberta(PWM_45_GRAUS, tensao);
 
         } else {
             // --------- MALHA FECHADA (PID) ---------

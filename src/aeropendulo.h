@@ -28,20 +28,11 @@ float Aeropendulo_LerAngulo(void);
 /* Retorna o pitch atual lido pelo MPU6050 (graus). */
 float Aeropendulo_LerPitch(void);
 
-/* Retorna quantas voltas o encoder deu (com casas decimais).
- * Ex: 1.25 = uma volta e um quarto. Pode ser negativo. */
-float Aeropendulo_LerVoltas(void);
+/* Mostra o ensaio de MALHA ABERTA: tensao, angulo e MPU a partir do PWM      */
+void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao);
 
-/* Mostra no display SOMENTE: angulo do MPU, angulo do encoder e voltas.
- * Usado para validar a calibracao antes de ligar outras partes do sistema. */
-void Aeropendulo_MostrarSensores(void);
-
-/* Mostra os dados do controle no display OLED.
- * Recebe os valores prontos (nao conhece o PID nem o motor por dentro):
- *   alvo    - angulo desejado (graus)
- *   angulo  - angulo atual do encoder (graus)
- *   mpu     - angulo do MPU (graus)
- *   pwm     - tensao/PWM aplicado no motor (0-1000)
+/* Mostra os dados do controle em MALHA FECHADA (PID) no display OLED.
+ *   alvo, angulo, mpu, pwm.
  *   travado - 1 se o sistema travou por desequilibrio */
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado);
