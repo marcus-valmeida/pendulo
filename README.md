@@ -1,9 +1,3 @@
-Aqui está uma proposta completa, estruturada e profissional de `README.md` para o seu repositório. Ele foi desenhado para ser legível, explicar a física e a matemática por trás das suas decisões de engenharia e guiar qualquer pessoa que vá ler ou modificar o seu código.
-
-Você pode copiar o conteúdo abaixo e colar diretamente no arquivo `README.md` na raiz do seu projeto no VSCode.
-
----
-
 # 🚁 Controle de Aeropêndulo com STM32 (Blue Pill)
 
 Este projeto implementa um sistema de controle de tempo real para um Aeropêndulo (um pêndulo acionado por um motor com hélice). O sistema utiliza um microcontrolador **STM32F103C8T6 (Blue Pill)** para manter a haste em ângulos pré-determinados através de uma malha fechada de controle que combina **Feedforward de Gravidade** e um **Controlador PID (Tipo B)**.
