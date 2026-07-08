@@ -10,7 +10,8 @@
   *
   *  LIGACOES:
   *    Encoder        : Fase A -> PA0 | Fase B -> PA1 | VCC -> 5V   | GND -> GND
-  *    OLED + MPU6050 : SCL   -> PB6 | SDA   -> PB7  | VCC -> 3.3V | GND -> GND
+  *    MPU6050        : SCL   -> PB6 | SDA   -> PB7  | VCC -> 3.3V | GND -> GND
+  *    OLED           : PB10 = SCL, PB11 = SDA | VCC -> 3.3V | GND -> GND
   *    Potenciometro  : Term1 -> GND | Term2 (wiper) -> PA4 | Term3 -> 3.3V
   *                     (0 ohm = -90 graus | 4.7k = +90 graus)
   *    HW-517 (motor) : TRIG/PWM -> PA6 | GND -> GND da Blue Pill
@@ -24,6 +25,7 @@
 #include "aeropendulo.h"
 #include "motor.h"
 #include "pid.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -33,6 +35,7 @@ I2C_HandleTypeDef hi2c1;                                                        
 TIM_HandleTypeDef htim3;                                                        // Timer 3 — PWM para o HW-517 (PA6)
 ADC_HandleTypeDef hadc1;                                                        // ADC1 — leitura do potenciometro (PA4)
 TIM_HandleTypeDef htim4;                                                        // Interrupcao de controle 50 Hz
+I2C_HandleTypeDef hi2c2;                                                        // I2C2 — OLED (PB10/PB11)
 /* USER CODE END PV */
 
 // -----------------------------------------------------------------------
@@ -79,7 +82,7 @@ int main(void) {
         * ------------------------------------------------------------------- */
         // OPCAO A — alvo fixo definido no codigo:
         PID_SetFonte(SETPOINT_CODIGO);
-        PID_SetAlvo(45.0f);                                                     // Insere manualmente o alvo
+        PID_SetAlvo(110.0f);                                                     // Insere manualmente o alvo
         // OPCAO B — alvo controlado pelo potenciometro (requer PA4 soldado):
         // PID_SetFonte(SETPOINT_POTENCIOMETRO);                                // Ângulo via potenciometro
 
@@ -98,7 +101,6 @@ int main(void) {
 
         } else {
             // --------- MALHA FECHADA (PID) ---------
-            PID_Atualizar();
             // Mostra as informações direto no display.
             Aeropendulo_MostrarControle(PID_GetAlvo(),
                                         Aeropendulo_LerAngulo(),

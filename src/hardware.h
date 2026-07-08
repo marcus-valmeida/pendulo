@@ -15,10 +15,11 @@
  * DEFINIDOS em main.c — referenciados (extern) por hardware.c e aeropendulo.c
  * ------------------------------------------------------------------------- */
 extern TIM_HandleTypeDef htim2;   // Timer 2 — modo Encoder (PA0/PA1)
-extern I2C_HandleTypeDef hi2c1;   // I2C1 — display OLED (PB6/PB7)
+extern I2C_HandleTypeDef hi2c1;   // I2C1 — MPU6050 (PB6/PB7)
 extern TIM_HandleTypeDef htim3;   // Timer 3 — PWM para o driver HW-517 (PA6)
 extern ADC_HandleTypeDef hadc1;   // ADC1 — leitura do potenciometro (PA4)
 extern TIM_HandleTypeDef htim4;   // Timer 4 — interrupcao de controle 50Hz
+extern I2C_HandleTypeDef hi2c2;   // I2C2 — display OLED (PB10/PB11)
 
 /* ---------------------------------------------------------------------------
  * API de hardware — unica funcao que a main.c precisa chamar.

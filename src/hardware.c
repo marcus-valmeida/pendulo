@@ -10,6 +10,7 @@
 
 /* USER CODE BEGIN Includes */
 #include "hardware.h"
+#include "pid.h"
 /* USER CODE END Includes */
 
 /* ---------------------------------------------------------------------------
@@ -19,8 +20,10 @@ static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_I2C2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM4_Init(void); 
 
 /* ---------------------------------------------------------------------------
  * Hardware_Init — ponto de entrada publico.
@@ -28,7 +31,8 @@ static void MX_ADC1_Init(void);
 void Hardware_Init(void) {
     SystemClock_Config();                                                      // 1. clock em 72 MHz (base de tudo)
     MX_GPIO_Init();                                                            // 2. LED PC13
-    MX_I2C1_Init();                                                            // 3. I2C1 para o OLED (PB6/PB7)
+    MX_I2C1_Init();                                                            // 3. I2C1 para o MPU (PB6/PB7)
+    MX_I2C2_Init();                                                            // 3. I2C2 para o OLED (PB10/PB11)
     MX_TIM2_Init();                                                            // 4. TIM2 modo Encoder (PA0/PA1)
     MX_TIM3_Init();                                                            // 5. TIM3 modo PWM para o motor (PA6)
     MX_ADC1_Init();                                                            // 6. ADC1 para o potenciometro (PA4)
@@ -112,27 +116,50 @@ void MX_TIM2_Init(void) {
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct); 
 }
 
-/* -------------------- I2C1 (PB6=SCL, PB7=SDA) para OLED ------------------- */
+/* -------------------- I2C1 (PB6=SCL, PB7=SDA) para MPU6050 ---------------- */
 static void MX_I2C1_Init(void) {
+    __HAL_RCC_GPIOB_CLK_ENABLE();                                              
+    __HAL_RCC_I2C1_CLK_ENABLE();                                               
+
+    GPIO_InitTypeDef GPIO_InitStruct = {0};                                    
+    GPIO_InitStruct.Pin   = GPIO_PIN_6 | GPIO_PIN_7; // RESTAURADO PARA PB6 e PB7                         
+    GPIO_InitStruct.Mode  = GPIO_MODE_AF_OD;                                   
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;                              
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);                                    
+
+    hi2c1.Instance             = I2C1;                                         
+    hi2c1.Init.ClockSpeed      = 400000;                                       
+    hi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;                              
+    hi2c1.Init.OwnAddress1     = 0;                                            
+    hi2c1.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;                      
+    hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;                      
+    hi2c1.Init.OwnAddress2     = 0;                                            
+    hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;                      
+    hi2c1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;                        
+    if (HAL_I2C_Init(&hi2c1) != HAL_OK) { Error_Handler(); }
+}
+
+/* -------------------- I2C2 (PB6=SCL, PB7=SDA) para OLED ------------------- */
+static void MX_I2C2_Init(void) {
     __HAL_RCC_GPIOB_CLK_ENABLE();                                              // Habilita a porta B.
-    __HAL_RCC_I2C1_CLK_ENABLE();                                               // Habilita o periferico I2C1.
+    __HAL_RCC_I2C2_CLK_ENABLE();                                               // Habilita o periferico I2C1.
 
     GPIO_InitTypeDef GPIO_InitStruct = {0};                                    // Cria formulario de configuracao.
-    GPIO_InitStruct.Pin   = GPIO_PIN_6 | GPIO_PIN_7;                           // PB6=SCL, PB7=SDA.
+    GPIO_InitStruct.Pin   = GPIO_PIN_10 | GPIO_PIN_11;                         // PB10=SCL, PB11=SDA.
     GPIO_InitStruct.Mode  = GPIO_MODE_AF_OD;                                   // Funcao alternativa, open drain (exigido pelo I2C).
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;                              // Velocidade alta de chaveamento do pino.
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);                                    // Entrega o formulario para o HAL.
 
-    hi2c1.Instance             = I2C1;                                         // Define o uso do periferico I2C1.
-    hi2c1.Init.ClockSpeed      = 400000;                                       // 400 kHz (fast mode).
-    hi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;                              // Proporcao padrao do sinal de clock.
-    hi2c1.Init.OwnAddress1     = 0;                                            // Endereco proprio (nao usado, STM32 e mestre).
-    hi2c1.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;                      // Enderecamento de 7 bits (padrao I2C).
-    hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;                      // So um endereco proprio, nao precisa de dois.
-    hi2c1.Init.OwnAddress2     = 0;                                            // Segundo endereco (nao usado).
-    hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;                      // Nao responde a chamadas gerais do barramento.
-    hi2c1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;                        // Permite ao escravo "segurar" o clock se precisar.
-    if (HAL_I2C_Init(&hi2c1) != HAL_OK) { Error_Handler(); }
+    hi2c2.Instance             = I2C2;                                         // Define o uso do periferico I2C1.
+    hi2c2.Init.ClockSpeed      = 400000;                                       // 400 kHz (fast mode).
+    hi2c2.Init.DutyCycle       = I2C_DUTYCYCLE_2;                              // Proporcao padrao do sinal de clock.
+    hi2c2.Init.OwnAddress1     = 0;                                            // Endereco proprio (nao usado, STM32 e mestre).
+    hi2c2.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;                      // Enderecamento de 7 bits (padrao I2C).
+    hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;                      // So um endereco proprio, nao precisa de dois.
+    hi2c2.Init.OwnAddress2     = 0;                                            // Segundo endereco (nao usado).
+    hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;                      // Nao responde a chamadas gerais do barramento.
+    hi2c2.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;                        // Permite ao escravo "segurar" o clock se precisar.
+    if (HAL_I2C_Init(&hi2c2) != HAL_OK) { Error_Handler(); }
 }
 
 /* ------------------- TIM3 PWM (PA6 = CH1) para o HW-517 -------------------

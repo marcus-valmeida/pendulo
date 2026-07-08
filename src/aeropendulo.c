@@ -16,7 +16,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 extern TIM_HandleTypeDef htim2;
-extern I2C_HandleTypeDef hi2c1;
+extern I2C_HandleTypeDef hi2c2;
 
 // Resolucao: 360 pulsos/volta x 4 (quadratura TI12) = 1440 contagens/volta.
 static const float RESOLUCAO_ENCODER = 1440.0f;
@@ -46,7 +46,7 @@ static float calcular_pitch(float Ax, float Ay, float Az) {
 void Aeropendulo_Init(void) {
     HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
 
-    SSD1306_Init(&hi2c1);
+    SSD1306_Init(&hi2c2);
     SSD1306_Clear();
     SSD1306_SetCursor(0, 0);
     SSD1306_WriteString("AEROPENDULO");
