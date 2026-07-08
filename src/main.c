@@ -4,13 +4,17 @@
   * @brief   Ponto de entrada do Aeropendulo.
   *          Escolha do modo de operacao (malha aberta ou malha fechada/PID)
   *
+  *    ARQUITETURA COM INTERRUPCAO:
+  *    O controle roda dentro da interrupcao do TIM4, a 50 Hz EXATOS. 
+  *    Isso garante que o calculo do integral use sempre DT=20ms.
+  *
   *  LIGACOES:
   *    Encoder        : Fase A -> PA0 | Fase B -> PA1 | VCC -> 5V   | GND -> GND
   *    OLED + MPU6050 : SCL   -> PB6 | SDA   -> PB7  | VCC -> 3.3V | GND -> GND
   *    Potenciometro  : Term1 -> GND | Term2 (wiper) -> PA4 | Term3 -> 3.3V
   *                     (0 ohm = -90 graus | 4.7k = +90 graus)
   *    HW-517 (motor) : TRIG/PWM -> PA6 | GND -> GND da Blue Pill
-  *    LED            : onboard PC13 (heartbeat)
+  *    LED            : onboard PC13
   ******************************************************************************
   */
 
@@ -28,6 +32,7 @@ TIM_HandleTypeDef htim2;                                                        
 I2C_HandleTypeDef hi2c1;                                                        // I2C1 — OLED e MPU6050 (PB6/PB7)
 TIM_HandleTypeDef htim3;                                                        // Timer 3 — PWM para o HW-517 (PA6)
 ADC_HandleTypeDef hadc1;                                                        // ADC1 — leitura do potenciometro (PA4)
+TIM_HandleTypeDef htim4;                                                        // Interrupcao de controle 50 Hz
 /* USER CODE END PV */
 
 // -----------------------------------------------------------------------
@@ -74,9 +79,13 @@ int main(void) {
         * ------------------------------------------------------------------- */
         // OPCAO A — alvo fixo definido no codigo:
         PID_SetFonte(SETPOINT_CODIGO);
-        PID_SetAlvo(30.0f);                                                     // Insere manualmente o alvo
+        PID_SetAlvo(45.0f);                                                     // Insere manualmente o alvo
         // OPCAO B — alvo controlado pelo potenciometro (requer PA4 soldado):
         // PID_SetFonte(SETPOINT_POTENCIOMETRO);                                // Ângulo via potenciometro
+
+        // Liga a interrupcao de controle SO em malha fechada.
+        Hardware_IniciarControle50Hz();
+
     }
 
     while (1) {
@@ -99,6 +108,6 @@ int main(void) {
         }
 
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay(20);                                                          // 50 Hz — casa com DT do PID
+        HAL_Delay(50);                                                         
     }
 }

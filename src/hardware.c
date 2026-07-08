@@ -32,6 +32,7 @@ void Hardware_Init(void) {
     MX_TIM2_Init();                                                            // 4. TIM2 modo Encoder (PA0/PA1)
     MX_TIM3_Init();                                                            // 5. TIM3 modo PWM para o motor (PA6)
     MX_ADC1_Init();                                                            // 6. ADC1 para o potenciometro (PA4)
+    MX_TIM4_Init();                                                            // 7. TIM4 base de tempo do controle
 
 }
 
@@ -199,6 +200,39 @@ static void MX_ADC1_Init(void) {
     sConfig.Rank         = ADC_REGULAR_RANK_1;                                  // Primeira (e unica) posicao na fila de conversao.
     sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;                           // Tempo de amostragem — estabiliza antes de medir.
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) { Error_Handler(); } 
+}
+
+/* ------------- TIM4: base de tempo do controle a 50 Hz -------------------  */
+static void MX_TIM4_Init(void) {
+    __HAL_RCC_TIM4_CLK_ENABLE();
+ 
+    htim4.Instance               = TIM4;
+    htim4.Init.Prescaler         = 7200 - 1;                                    // 72 MHz / 7200 = 10 kHz
+    htim4.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim4.Init.Period            = 200 - 1;                                     // 10 kHz / 200 = 50 Hz
+    htim4.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    if (HAL_TIM_Base_Init(&htim4) != HAL_OK) { Error_Handler(); }
+ 
+    HAL_NVIC_SetPriority(TIM4_IRQn, 1, 0);                                      // prioridade da interrupcao
+    HAL_NVIC_EnableIRQ(TIM4_IRQn);                                              // habilita a interrupcao
+}
+ 
+/* ------------- Inicia a interrupcao de controle (apos PID_Init) ---------- */
+void Hardware_IniciarControle50Hz(void) {
+    HAL_TIM_Base_Start_IT(&htim4);                                              // liga o TIM4 com interrupcao
+}
+ 
+/* --------- Vetor de interrupcao do TIM4 ---------------------------------- */
+void TIM4_IRQHandler(void) {
+    HAL_TIM_IRQHandler(&htim4);                                                 // HAL trata e chama o callback
+}
+ 
+/* --------- Callback a cada estouro do TIM4 (50 Hz) ----------------------- */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM4) {
+        PID_Atualizar();                                                        // roda o controle (DT fixo = 20ms)
+    }
 }
 
 /* ----------------------------- Error Handler ------------------------------ */
