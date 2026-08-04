@@ -24,6 +24,7 @@ static void MX_I2C2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void); 
+static void MX_USART1_UART_Init(void);
 
 /* ---------------------------------------------------------------------------
  * Hardware_Init — ponto de entrada publico.
@@ -37,7 +38,7 @@ void Hardware_Init(void) {
     MX_TIM3_Init();                                                            // 5. TIM3 modo PWM para o motor (PA6)
     MX_ADC1_Init();                                                            // 6. ADC1 para o potenciometro (PA4)
     MX_TIM4_Init();                                                            // 7. TIM4 base de tempo do controle
-
+    MX_USART1_UART_Init();                                                     // 8. UART1 para comunicacao com o PC (PA9)
 }
 
 /* --------------------- Clock 72 MHz (HSE 8MHz x PLL9) --------------------- */
@@ -243,6 +244,38 @@ static void MX_TIM4_Init(void) {
  
     HAL_NVIC_SetPriority(TIM4_IRQn, 1, 0);                                      // prioridade da interrupcao
     HAL_NVIC_EnableIRQ(TIM4_IRQn);                                              // habilita a interrupcao
+}
+
+/* ------------------- UART1 (PA9=TX) para comunicacao com PC --------------- */
+static void MX_USART1_UART_Init(void) {
+    __HAL_RCC_USART1_CLK_ENABLE();                                              // Habilita o clock da USART1.
+    __HAL_RCC_GPIOA_CLK_ENABLE();                                               // Habilita a porta A.
+
+    GPIO_InitTypeDef GPIO_InitStruct = {0};                                     // Cria formulario de configuracao.
+    GPIO_InitStruct.Pin = GPIO_PIN_9;                                           // Define o pino 9 (TX).
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;                                     // Funcao alternativa, Push-Pull (TX UART).
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;                               // Velocidade alta.
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                                     // Entrega o formulario para o HAL.
+
+    huart1.Instance = USART1;                                                   // Define o uso da USART1.
+    huart1.Init.BaudRate = 115200;                                              // Velocidade de 115200 bps.
+    huart1.Init.WordLength = UART_WORDLENGTH_8B;                                // 8 bits de dados.
+    huart1.Init.StopBits = UART_STOPBITS_1;                                     // 1 bit de parada.
+    huart1.Init.Parity = UART_PARITY_NONE;                                      // Sem paridade.
+    huart1.Init.Mode = UART_MODE_TX;                                            // Apenas transmissao (TX).
+    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;                                // Sem controle de fluxo de hardware.
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;                            // Oversampling padrao.
+    if (HAL_UART_Init(&huart1) != HAL_OK) { Error_Handler(); }
+}
+
+/* --------- Envia uma string de texto via UART para o PC ------------------ */
+void Hardware_EnviarTexto(const char *texto) {
+    uint16_t tamanho = 0;
+    // Conta quantos caracteres tem no texto antes do terminador nulo
+    while (texto[tamanho] != '\0') { tamanho++; }
+    
+    // Dispara pela UART (Pino PA9)
+    HAL_UART_Transmit(&huart1, (uint8_t *)texto, tamanho, 100);
 }
  
 /* ------------- Inicia a interrupcao de controle (apos PID_Init) ---------- */

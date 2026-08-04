@@ -20,6 +20,7 @@ extern TIM_HandleTypeDef htim3;   // Timer 3 — PWM para o driver HW-517 (PA6)
 extern ADC_HandleTypeDef hadc1;   // ADC1 — leitura do potenciometro (PA4)
 extern TIM_HandleTypeDef htim4;   // Timer 4 — interrupcao de controle 50Hz
 extern I2C_HandleTypeDef hi2c2;   // I2C2 — display OLED (PB10/PB11)
+extern UART_HandleTypeDef huart1; // UART1 — Transmissao para o PC (PA9)
 
 /* ---------------------------------------------------------------------------
  * API de hardware — unica funcao que a main.c precisa chamar.
@@ -28,6 +29,9 @@ extern I2C_HandleTypeDef hi2c2;   // I2C2 — display OLED (PB10/PB11)
 
 /* Inicializa todo o hardware do chip (clock, LED, encoder, I2C). */
 void Hardware_Init(void);
+
+/* Envia uma string de texto via UART para o PC */
+void Hardware_EnviarTexto(const char *texto);
 
 /* Inicia a interrupcao de controle a 50Hz (chamar depois do PID_Init). */
 void Hardware_IniciarControle50Hz(void);

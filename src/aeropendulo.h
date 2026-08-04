@@ -37,4 +37,7 @@ void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao);
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado);
 
+/* Transmite dados de telemetria via UART para o PC (uso com script Python) */
+void Aeropendulo_TransmitirTelemetria(uint32_t tempo_ms, float angulo_real, float alvo);
+
 #endif /* AEROPENDULO_H */

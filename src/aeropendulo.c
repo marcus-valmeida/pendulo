@@ -131,6 +131,22 @@ void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao) {
     SSD1306_UpdateScreen();
 }
 
+void Aeropendulo_TransmitirTelemetria(uint32_t tempo_ms, float angulo_real, float alvo) {
+    char buffer_tx[64];
+    
+    // Quebra o angulo real (float -> int + decimal)
+    int int_ang = (int)angulo_real;
+    int dec_ang = (int)((fabsf(angulo_real) - abs(int_ang)) * 100);
+    
+    // Quebra o alvo (float -> int + decimal)
+    int int_alvo = (int)alvo;
+    int dec_alvo = (int)((fabsf(alvo) - abs(int_alvo)) * 100);
+
+    // Formato CSV: tempo, angulo_real, alvo
+    sprintf(buffer_tx, "%lu,%d.%02d,%d.%02d\r\n", tempo_ms, int_ang, dec_ang, int_alvo, dec_alvo);
+    Hardware_EnviarTexto(buffer_tx);
+}
+
 /* ------------------ Mostra os dados do controle no display --------------- */
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado) {

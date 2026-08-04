@@ -26,6 +26,7 @@
 #include "motor.h"
 #include "pid.h"
 #include <math.h>
+#include <stdio.h>  // Adicione isso lá no topo do main.c para usar o sprintf
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -36,6 +37,7 @@ TIM_HandleTypeDef htim3;                                                        
 ADC_HandleTypeDef hadc1;                                                        // ADC1 — leitura do potenciometro (PA4)
 TIM_HandleTypeDef htim4;                                                        // Interrupcao de controle 50 Hz
 I2C_HandleTypeDef hi2c2;                                                        // I2C2 — OLED (PB10/PB11)
+UART_HandleTypeDef huart1;                                                      // UART1 — Transmissao para o PC (PA9)
 /* USER CODE END PV */
 
 // -----------------------------------------------------------------------
@@ -49,12 +51,12 @@ typedef enum {
 static const ModoOperacao MODO_ATUAL = MODO_MALHA_FECHADA;
  
 // Aplicando a fórmula: C ≈ (0.710 + 0.671 + 0.677 + 0.664) / 4 = 0.680
-static const int32_t PWM_15_GRAUS = 87;
-static const int32_t PWM_30_GRAUS = 160;
-static const int32_t PWM_45_GRAUS = 225;
-static const int32_t PWM_60_GRAUS = 275;
-static const int32_t PWM_75_GRAUS = 317;
-static const int32_t PWM_90_GRAUS = 330;
+static const int32_t PWM_15_GRAUS = 137;
+static const int32_t PWM_30_GRAUS = 220;
+static const int32_t PWM_45_GRAUS = 320;
+static const int32_t PWM_60_GRAUS = 400;
+static const int32_t PWM_75_GRAUS = 450;
+static const int32_t PWM_90_GRAUS = 500;
 // Usado somente em MODO_MALHA_ABERTA: PWM fixo aplicado ao motor (0-1000).
 static const int32_t PWM_TESTE_MALHA_ABERTA = 100;
 
@@ -74,6 +76,9 @@ int main(void) {
     Aeropendulo_Init();                                                         // liga encoder e prepara o display
     Aeropendulo_InitMPU();                                                      // inicializa MPU6050 e calibra o encoder
 
+    uint32_t tempo_inicial = 0;
+    int32_t angulo_m_a = PWM_75_GRAUS; // degrau de identificacao (Metodo 1 ZN) — mesmo alvo usado em malha fechada
+
     if (MODO_ATUAL == MODO_MALHA_FECHADA) {
         PID_Init();
 
@@ -82,34 +87,54 @@ int main(void) {
         * ------------------------------------------------------------------- */
         // OPCAO A — alvo fixo definido no codigo:
         PID_SetFonte(SETPOINT_CODIGO);
-        PID_SetAlvo(30.0f);                                                     // Insere manualmente o alvo
+        PID_SetAlvo(100.0f);                                                     // Insere manualmente o alvo
         // OPCAO B — alvo controlado pelo potenciometro (requer PA4 soldado):
         // PID_SetFonte(SETPOINT_POTENCIOMETRO);                                // Ângulo via potenciometro
 
         // Liga a interrupcao de controle SO em malha fechada.
         Hardware_IniciarControle50Hz();
+        tempo_inicial = HAL_GetTick();
 
+    }else {
+        // PREPARAÇÃO PARA MALHA ABERTA (Degrau Fixo)
+        Motor_SetPWM(angulo_m_a); // Digite o PWM do degrau aqui
+        tempo_inicial = HAL_GetTick();
     }
 
     while (1) {
 
+        uint32_t tempo_atual = HAL_GetTick() - tempo_inicial;
+
+        // Lê o ângulo real do hardware
+        float angulo_real = Aeropendulo_LerAngulo(); 
+
         if (MODO_ATUAL == MODO_MALHA_ABERTA) {
-            // --------- ENSAIO DE MALHA ABERTA ---------
-            Motor_SetPWM(PWM_45_GRAUS);
-            float tensao = Motor_PWM_Para_Tensao(PWM_45_GRAUS);
-            Aeropendulo_MostrarMalhaAberta(PWM_45_GRAUS, tensao);
+
+            Aeropendulo_TransmitirTelemetria(tempo_atual, angulo_real, 0.0f);
+
+            // OLED atualizado a cada 8 ciclos (I2C e lento e derruba a taxa
+            // de amostragem da telemetria — para identificacao, a taxa de
+            // envio pela UART importa mais que a tela).
+            static uint8_t contador_oled = 0;
+            if ((contador_oled++ % 8) == 0) {
+                float tensao = Motor_PWM_Para_Tensao(angulo_m_a);
+                Aeropendulo_MostrarMalhaAberta(angulo_m_a, tensao);
+            }
 
         } else {
             // --------- MALHA FECHADA (PID) ---------
-            // Mostra as informações direto no display.
+            // Em malha fechada enviamos o alvo que o PID está perseguindo
+            Aeropendulo_TransmitirTelemetria(tempo_atual, angulo_real, PID_GetAlvo());
+
             Aeropendulo_MostrarControle(PID_GetAlvo(),
-                                        Aeropendulo_LerAngulo(),
+                                        angulo_real,
                                         Aeropendulo_LerPitch(),
                                         PID_GetSaida(),
                                         PID_GetTravado());
         }
 
         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay(50);                                                         
+        HAL_Delay(MODO_ATUAL == MODO_MALHA_ABERTA ? 10 : 50);
+
     }
 }

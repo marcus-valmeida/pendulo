@@ -22,40 +22,40 @@
 /* USER CODE BEGIN PV */
 
 extern ADC_HandleTypeDef hadc1;
+
 /* ============================ GANHOS BASE DO PID ==========================
- * Estes sao os ganhos PLENOS — usados integralmente para alvos grandes
- * (perto de ALVO_REF_GANHO). Para alvos menores, sao escalonados (ver
- * calcular_fator_ganho() mais abaixo).
+ * Ganhos calculados por cancelamento de polos sobre o modelo de 2a ordem +
+ * atraso identificado na bancada (decremento logaritmico — ver
+ * docs/diagnostico_oscilacao_pid.md, secao 6.2/6.3).
+ * Ponto de projeto: 75 graus (pior caso confiavel de omega_n; o ensaio de
+ * 90 graus foi excluido por baixa confiabilidade). Margem de fase alvo
+ * 70 graus (mais conservadora que os 60 graus originais, para dar folga
+ * ao fato de que a cancelacao de polos depende de zeta/omega_n medidos
+ * com incerteza — um disturbio forte tipo "peteleco" pode excitar o modo
+ * natural da planta se a cancelacao nao for perfeita).
+ * Validado contra os pontos de 30/45/60/75 via analise_margem_multiponto.py:
+ * margem de fase minima 70 graus (no proprio ponto de projeto), sobe ate
+ * ~79 graus em 30 graus — nenhum escalonamento de ganho necessario.
  * ------------------------------------------------------------------------- */
-static const float Kp = 1.40f;
-static const float Ki = 0.30f;
-static const float Kd = 0.87f;
-static const float N  = 10.0f;
-static const float DT = 0.020f;   // 20 ms = 50 Hz (cravado pela interrupcao)
-
-/* ===================== ESCALONAMENTO DE GANHOS (NOVO) =====================
- * fator = |alvo| / ALVO_REF_GANHO, limitado entre FATOR_MIN e 1.0
- *   - alvo = 110 (ou mais)     -> fator = 1.0  (ganho pleno, como ja bom)
- *   - alvo = 45                -> fator ~ 0.45 (ganho reduzido, menos overshoot)
- *   - alvo pequeno (perto de 0)-> fator = FATOR_MIN (nunca fica fraco demais)
- * Aplicado em Kp e Kd (o que mais causa overshoot). Ki fica fixo — ele so
- * afeta o erro de regime, nao a velocidade da resposta.
- * ------------------------------------------------------------------------- */
-static const float ALVO_REF_GANHO = 100.0f;  // angulo onde o ganho fica pleno
-static const float FATOR_MIN      = 0.60f;   // piso do fator (nunca fica mole demais)
-
-/* ================= FEEDFORWARD (base pelos dados de bancada) =============
- * sen(theta) = C * V  =>  V = sen(theta)/C  =>  PWM = V * PWM_POR_VOLT
- * ------------------------------------------------------------------------- */
-static const float C_CALIBRACAO = 0.68f;
-static const float PWM_POR_VOLT = 1000.0f / 4.7f;
-
+static const float Kp = 0.0953f;
+static const float Ki = 2.0912f;
+static const float Kd = 0.0524f;
+static const float N  = 15.0f;    // N*DT=0.3 — filtro estavel (ver docs, secao 2.1)
+static const float DT = 0.020f;   // 20 ms = 50 Hz
+    
 /* =========================== LIMITES DE SAIDA =========================== */
 static const float PWM_MIN = 0.0f;
 static const float PWM_MAX = 1000.0f;
 
-/* ================ ANTI-WINDUP DO INTEGRAL =============================== */
-static const float INTEGRAL_MAX = 100.0f;
+/* ================ ANTI-WINDUP DO INTEGRAL ===============================
+ * Kp agora e pequeno (cancelamento de polos), entao o proporcional quase
+ * nao contribui no regime permanente — quase todo o PWM de sustentacao
+ * (ate ~500 em 90 graus, pela calibracao de malha aberta) tem que vir do
+ * integral. Um teto baixo aqui (o antigo 300, calibrado para o Ki=16
+ * anterior) trava o integral antes de fechar o erro em alvos grandes —
+ * foi a causa do erro de regime visto nos ensaios de 45/60 graus.
+ * ------------------------------------------------------------------------- */
+static const float INTEGRAL_MAX = 900.0f;
 
 /* ====================== ESTAGIOS DE SEGURANCA (modulo) ===================
  * Faixas: 130-149 reduz, 150-169 desliga, >=170 trava. Valem p/ + e -.
@@ -85,8 +85,6 @@ static uint8_t primeiro_ciclo = 1;
 /* Prototipos privados ------------------------------------------------------*/
 static float ler_setpoint_potenciometro(void);
 static float saturar(float valor, float minimo, float maximo);
-static float calcular_base_ff(float angulo_alvo);
-static float calcular_fator_ganho(float angulo_alvo);
 
 /* --------------------------- Inicializacao ------------------------------- */
 void PID_Init(void) {
@@ -108,22 +106,6 @@ void PID_SetFonte(FonteSetpoint fonte) {
 /* ------------------------- Define o alvo (codigo) ------------------------ */
 void PID_SetAlvo(float angulo_alvo) {
     alvo_final = angulo_alvo;
-}
-
-/* ------------- Feedforward: PWM aproximado que sustenta o alvo ----------- */
-static float calcular_base_ff(float angulo_alvo) {
-    float rad = fabsf(angulo_alvo) * (3.14159265f / 180.0f);
-    float tensao = sinf(rad) / C_CALIBRACAO;
-    float pwm = tensao * PWM_POR_VOLT;
-    return saturar(pwm, 0.0f, PWM_MAX);
-}
-
-/* ------------- Fator de escalonamento de ganho (NOVO) --------------------
- * Alvos pequenos -> fator menor (Kp/Kd mais suaves, menos overshoot).
- * Alvos grandes (>= ALVO_REF_GANHO) -> fator 1.0 (ganho pleno, ja bom). */
-static float calcular_fator_ganho(float angulo_alvo) {
-    float fator = fabsf(angulo_alvo) / ALVO_REF_GANHO;
-    return saturar(fator, FATOR_MIN, 1.0f);
 }
 
 /* ------------- Le o potenciometro e mapeia para -90 a +90 ---------------- */
@@ -178,16 +160,11 @@ void PID_Atualizar(void) {
         alvo = ler_setpoint_potenciometro();
     }
 
-    // ---- Fator de escalonamento (depende do tamanho do alvo) ----
-    float fator_ganho = calcular_fator_ganho(alvo);
-    float Kp_eff = Kp * fator_ganho;
-    float Kd_eff = Kd * fator_ganho;
-
     // ---- Erro ----
     erro_atual = alvo - angulo_atual;
 
     // ---- Proporcional (com ganho escalonado) ----
-    float P = Kp_eff * erro_atual;
+    float P = Kp * erro_atual;
 
     // ---- Integral com anti-windup (ganho fixo) ----
     integral += Ki * erro_atual * DT;
@@ -199,16 +176,13 @@ void PID_Atualizar(void) {
     if (!primeiro_ciclo) {
         float deriv_angulo = (angulo_atual - angulo_anterior) / DT;
         deriv_estado += N * DT * (deriv_angulo - deriv_estado);
-        D = -Kd_eff * deriv_estado;
+        D = -Kd * deriv_estado;
     }
     angulo_anterior = angulo_atual;
     primeiro_ciclo  = 0;
 
-    // ---- Feedforward: base calculada a partir do alvo (dados de bancada) --
-    float base_ff = calcular_base_ff(alvo);
-
     // ---- Saida = feedforward (empurrao) + PID escalonado ----
-    float saida = base_ff + P + I + D;
+    float saida = P + I + D;
     saida = saturar(saida, PWM_MIN, PWM_MAX);
 
     // ---- Faixa 130 a 149 : reduz 20% ----
