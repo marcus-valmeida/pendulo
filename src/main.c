@@ -87,7 +87,9 @@ int main(void) {
         * ------------------------------------------------------------------- */
         // OPCAO A — alvo fixo definido no codigo:
         PID_SetFonte(SETPOINT_CODIGO);
-        PID_SetAlvo(100.0f);                                                     // Insere manualmente o alvo
+        PID_SetAlvo(110.0f);                                                     // Insere manualmente o alvo
+        // Faixa validada: 30 a 75 graus. Acima disso o teto INTEGRAL_MAX de
+        // pid.c limita o angulo alcancavel (docs/diagnostico_oscilacao_pid.md).
         // OPCAO B — alvo controlado pelo potenciometro (requer PA4 soldado):
         // PID_SetFonte(SETPOINT_POTENCIOMETRO);                                // Ângulo via potenciometro
 

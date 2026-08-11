@@ -1,13 +1,10 @@
 /**
   ******************************************************************************
   * @file    pid.c
-  * @brief   Controlador PID (Tipo B) + Feedforward + Escalonamento de Ganhos.
-  *          - Feedforward (base_ff): estima o PWM que sustenta o alvo.
-  *          - PID: corrige o residuo (P, I, D sobre o angulo).
-  *          - ESCALONAMENTO: Kp e Kd sao reduzidos para alvos pequenos, onde
-  *            o feedforward contribui pouco e os ganhos plenos (calibrados
-  *            para alvos grandes, tipo 110) causam overshoot. Para alvos
-  *            grandes, o fator fica em 1.0 (ganho pleno, como ja esta bom).
+  * @brief   Controlador PID (Tipo B) puro — ganho unico e fixo, sem
+  *          feedforward e sem escalonamento de ganhos.
+  *          Ganhos por Ziegler-Nichols Metodo 2, linha "some overshoot".
+  *          Memorial de calculo e ensaios: docs/diagnostico_oscilacao_pid.md
   *          Executado a 50 Hz EXATOS pela interrupcao do TIM4 (DT confiavel).
   ******************************************************************************
   */
@@ -24,38 +21,32 @@
 extern ADC_HandleTypeDef hadc1;
 
 /* ============================ GANHOS BASE DO PID ==========================
- * Ganhos calculados por cancelamento de polos sobre o modelo de 2a ordem +
- * atraso identificado na bancada (decremento logaritmico — ver
- * docs/diagnostico_oscilacao_pid.md, secao 6.2/6.3).
- * Ponto de projeto: 75 graus (pior caso confiavel de omega_n; o ensaio de
- * 90 graus foi excluido por baixa confiabilidade). Margem de fase alvo
- * 70 graus (mais conservadora que os 60 graus originais, para dar folga
- * ao fato de que a cancelacao de polos depende de zeta/omega_n medidos
- * com incerteza — um disturbio forte tipo "peteleco" pode excitar o modo
- * natural da planta se a cancelacao nao for perfeita).
- * Validado contra os pontos de 30/45/60/75 via analise_margem_multiponto.py:
- * margem de fase minima 70 graus (no proprio ponto de projeto), sobe ate
- * ~79 graus em 30 graus — nenhum escalonamento de ganho necessario.
+ * Ziegler-Nichols Metodo 2 no pior ponto da faixa (30 graus: Ku=2.47,
+ * Tu=0.690 s), linha "some overshoot". Deducao na secao 4 do diagnostico.
  * ------------------------------------------------------------------------- */
-static const float Kp = 0.0953f;
-static const float Ki = 2.0912f;
-static const float Kd = 0.0524f;
-static const float N  = 15.0f;    // N*DT=0.3 — filtro estavel (ver docs, secao 2.1)
+static const float Kp = 0.8138f;  // 0.33 * Ku
+static const float Ki = 2.3589f;  // Kp / Ti,  Ti = 0.50  * Tu
+static const float Kd = 0.1870f;  // Kp * Td,  Td = 0.333 * Tu
 static const float DT = 0.020f;   // 20 ms = 50 Hz
-    
+
+/* ===================== FILTRO DO DERIVATIVO (N) ==========================
+ * Passa-baixa de 1a ordem com polo em z = 1 - N*DT; so e estavel se N*DT < 2.
+ * N*DT = 1 poe o polo em zero: derivativo mais rapido possivel sem oscilar.
+ * NAO usar N=100 (N*DT = 2 exatos, oscila em 25 Hz para sempre).
+ * ------------------------------------------------------------------------- */
+static const float N  = 50.0f;    // N*DT = 1.0 — atraso puro de 1 amostra
+
 /* =========================== LIMITES DE SAIDA =========================== */
 static const float PWM_MIN = 0.0f;
 static const float PWM_MAX = 1000.0f;
 
 /* ================ ANTI-WINDUP DO INTEGRAL ===============================
- * Kp agora e pequeno (cancelamento de polos), entao o proporcional quase
- * nao contribui no regime permanente — quase todo o PWM de sustentacao
- * (ate ~500 em 90 graus, pela calibracao de malha aberta) tem que vir do
- * integral. Um teto baixo aqui (o antigo 300, calibrado para o Ki=16
- * anterior) trava o integral antes de fechar o erro em alvos grandes —
- * foi a causa do erro de regime visto nos ensaios de 45/60 graus.
+ * Quase todo o PWM de sustentacao vem do integral (Kp*erro tende a zero no
+ * regime), entao o teto tem que cobrir o PWM do maior alvo desejado.
+ * ATENCAO: este teto limita o angulo maximo alcancavel — ver secao 6 do
+ * diagnostico (alvos de 90 graus ou mais param abaixo do alvo por causa dele).
  * ------------------------------------------------------------------------- */
-static const float INTEGRAL_MAX = 900.0f;
+static const float INTEGRAL_MAX = 550.0f;
 
 /* ====================== ESTAGIOS DE SEGURANCA (modulo) ===================
  * Faixas: 130-149 reduz, 150-169 desliga, >=170 trava. Valem p/ + e -.
@@ -163,15 +154,10 @@ void PID_Atualizar(void) {
     // ---- Erro ----
     erro_atual = alvo - angulo_atual;
 
-    // ---- Proporcional (com ganho escalonado) ----
+    // ---- Proporcional ----
     float P = Kp * erro_atual;
 
-    // ---- Integral com anti-windup (ganho fixo) ----
-    integral += Ki * erro_atual * DT;
-    integral = saturar(integral, -INTEGRAL_MAX, INTEGRAL_MAX);
-    float I = integral;
-
-    // ---- Derivativo TIPO B: sobre o ANGULO, com ganho escalonado ----
+    // ---- Derivativo TIPO B: sobre o ANGULO ----
     float D = 0.0f;
     if (!primeiro_ciclo) {
         float deriv_angulo = (angulo_atual - angulo_anterior) / DT;
@@ -181,9 +167,14 @@ void PID_Atualizar(void) {
     angulo_anterior = angulo_atual;
     primeiro_ciclo  = 0;
 
-    // ---- Saida = feedforward (empurrao) + PID escalonado ----
-    float saida = P + I + D;
-    saida = saturar(saida, PWM_MIN, PWM_MAX);
+    // ---- Integral com anti-windup (clamping dinamico) ----
+    // Limitado pela folga que P e D deixam ate os limites do atuador.
+    integral += Ki * erro_atual * DT;
+    integral  = saturar(integral, PWM_MIN - (P + D), PWM_MAX - (P + D));
+    integral  = saturar(integral, -INTEGRAL_MAX, INTEGRAL_MAX);
+
+    // ---- Saida ----
+    float saida = saturar(P + integral + D, PWM_MIN, PWM_MAX);
 
     // ---- Faixa 130 a 149 : reduz 20% ----
     if (ang_abs >= LIM_REDUZIR) {
