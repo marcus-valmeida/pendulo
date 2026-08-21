@@ -1,27 +1,8 @@
-"""
-Simulacao em malha fechada do DEGRAU DE PARTIDA (repouso -> alvo), replicando
-EXATAMENTE a logica discreta de pid.c (mesmas formulas, mesma ordem de
-operacoes, mesmo anti-windup por clamp, mesmos estagios de seguranca) contra
-o modelo de planta identificado na bancada (docs/diagnostico_oscilacao_pid.md,
-secao 6.2 — decremento logaritmico).
+"""Simula o degrau de partida (repouso -> alvo) replicando a logica discreta
+de pid.c: mesmas formulas, anti-windup por clamp e estagios de seguranca.
+Aqui a saturacao de PWM entra, o que analise_margem_multiponto.py nao cobre.
 
-Motivacao: no ensaio real com alvo=60 graus, o braco "levou um susto" ao
-ligar a fonte, passando de 180 graus antes de estabilizar. Kp e pequeno
-(0.0953) e nao explica isso sozinho — a hipotese e windup do integral
-combinado com o degrau de setpoint aplicado sem rampa e o atraso de
-transporte identificado (L). Este script testa a hipotese em malha fechada
-não-linear (com saturacao de PWM e os estagios de seguranca reais), o que
-analise_margem_multiponto.py NAO cobre (aquele so avalia margem de fase
-linearizada em pequenos sinais).
-
-Planta: G(s) = K*wn^2/(s^2+2*zeta*wn*s+wn^2), discretizada (ZOH, DT=0.02s).
-O atraso de transporte L e simulado por um buffer de amostras atrasando o
-PWM aplicado a planta (equivalente a um atraso puro, mais fiel no tempo do
-que a aproximacao de Pade usada na analise em frequencia).
-
-Uso:
     python3 simula_partida_degrau.py --alvo 60 --ponto 60
-    python3 simula_partida_degrau.py --alvo 60 --ponto 60 --integral-max 550 --anti-windup-condicional
 """
 
 import argparse
@@ -29,21 +10,25 @@ import numpy as np
 import control as ct
 import matplotlib.pyplot as plt
 
-# Pontos identificados na bancada (docs/diagnostico_oscilacao_pid.md, 6.2/6.3)
+# K/zeta/wn vem de identifica_zn.py (fonte unica). O L aqui e o do ENSAIO,
+# nao o de projeto: inclui o tempo ate a fonte ser ligada, e e ele que
+# reproduz o pico de 117 graus medido na bancada. Ver docs/projeto_pid.md 2.3.
+from identifica_zn import PONTOS as _P
 PONTOS = {
-    30: dict(K=0.136, zeta=0.130, wn=8.38, L=0.70),
-    45: dict(K=0.129, zeta=0.146, wn=8.14, L=1.00),
-    60: dict(K=0.139, zeta=0.171, wn=7.70, L=0.85),
-    75: dict(K=0.156, zeta=0.144, wn=6.32, L=1.07),
-    90: dict(K=0.198, zeta=0.165, wn=5.83, L=1.53),
+    30: dict(**_P[30], L=0.70),
+    45: dict(**_P[45], L=1.00),
+    60: dict(**_P[60], L=0.85),
+    75: dict(**_P[75], L=1.07),
+    90: dict(**_P[90], L=1.53),
 }
 
-# Ganhos gravados hoje em src/pid.c
-KP, KI, KD, N = 0.0953, 2.0912, 0.0524, 15.0
+# Espelho de src/pid.c — se mudar la, mude aqui.
+KP, KI, KD, N = 0.8138, 2.3589, 0.1870, 50.0
 DT = 0.020
 PWM_MIN, PWM_MAX = 0.0, 1000.0
-LIM_REDUZIR, LIM_DESLIGAR, LIM_TRAVAR = 130.0, 150.0, 170.0
-FATOR_REDUCAO = 0.80
+INTEGRAL_MAX = 620.0
+LIM_REDUZIR1, LIM_REDUZIR2, LIM_DESLIGAR, LIM_TRAVAR = 130.0, 150.0, 160.0, 170.0
+FATOR_REDUCAO1, FATOR_REDUCAO2 = 0.90, 0.80
 
 
 def saturar(v, lo, hi):
@@ -58,12 +43,9 @@ _ANG_KL = sorted(PONTOS)
 
 
 def interpolar_planta(theta_abs):
-    """Interpola zeta(theta), wn(theta), K(theta), L(theta) a partir dos
-    pontos identificados na bancada (mantem constante fora da faixa medida:
-    <=30 usa o ponto de 30, >=90 usa o ponto de 90). Isso NAO e escalonamento
-    do controlador — e so o modelo (nao-linear, quasi-LPV) usado para
-    SIMULAR a planta real, cujos parametros fisicos mudam com o angulo
-    (efeito mola gravitacional). O PID em si continua ganho unico e fixo."""
+    """Interpola zeta, wn, K e L entre os pontos da bancada (constante fora
+    da faixa medida). E o modelo da PLANTA, nao do controlador: o PID
+    continua com ganho unico e fixo."""
     ta = saturar(theta_abs, _ANG_ZW[0], _ANG_ZW[-1])
     zeta = np.interp(ta, _ANG_ZW, [PONTOS[a]["zeta"] for a in _ANG_ZW])
     wn = np.interp(ta, _ANG_ZW, [PONTOS[a]["wn"] for a in _ANG_ZW])
@@ -89,7 +71,7 @@ def rk4_passo(theta, dtheta, pwm, zeta, wn, K, h):
     return theta_novo, dtheta_novo
 
 
-def simular(ponto, alvo, integral_max, anti_windup_condicional, t_final=15.0,
+def simular(ponto, alvo, integral_max=INTEGRAL_MAX, t_final=15.0,
             planta_variavel=False, n_sub=10):
     p = PONTOS[ponto]
 
@@ -135,9 +117,6 @@ def simular(ponto, alvo, integral_max, anti_windup_condicional, t_final=15.0,
             erro = alvo - angulo_atual
             P = KP * erro
 
-            I_tentativo = integral + KI * erro * DT
-            I_tentativo = saturar(I_tentativo, -integral_max, integral_max)
-
             D = 0.0
             if not primeiro_ciclo:
                 deriv_angulo = (angulo_atual - angulo_anterior) / DT
@@ -146,20 +125,17 @@ def simular(ponto, alvo, integral_max, anti_windup_condicional, t_final=15.0,
             angulo_anterior = angulo_atual
             primeiro_ciclo = False
 
-            saida_pre_sat = P + I_tentativo + D
-            saida = saturar(saida_pre_sat, PWM_MIN, PWM_MAX)
+            # Mesma ordem de pid.c: clamp dinamico e depois o teto absoluto.
+            integral = integral + KI * erro * DT
+            integral = saturar(integral, PWM_MIN - (P + D), PWM_MAX - (P + D))
+            integral = saturar(integral, -integral_max, integral_max)
 
-            # anti-windup condicional (candidato): so integra se a saida
-            # antes da saturacao ainda estava dentro dos limites do atuador
-            if anti_windup_condicional:
-                if PWM_MIN < saida_pre_sat < PWM_MAX:
-                    integral = I_tentativo
-                # senao: mantem o integral anterior (nao acumula mais)
-            else:
-                integral = I_tentativo  # comportamento atual do pid.c
+            saida = saturar(P + integral + D, PWM_MIN, PWM_MAX)
 
-            if ang_abs >= LIM_REDUZIR:
-                saida *= FATOR_REDUCAO
+            if ang_abs >= LIM_REDUZIR1:
+                saida *= FATOR_REDUCAO1
+            if ang_abs >= LIM_REDUZIR2:
+                saida *= FATOR_REDUCAO2
 
         pwm_hist.append(saida)
         integ_hist.append(integral)
@@ -181,17 +157,15 @@ def simular(ponto, alvo, integral_max, anti_windup_condicional, t_final=15.0,
 
     return dict(t=np.array(t_hist), ang=np.array(ang_hist),
                 pwm=np.array(pwm_hist), integ=np.array(integ_hist),
-                ponto=ponto, alvo=alvo, integral_max=integral_max,
-                anti_windup_condicional=anti_windup_condicional)
+                ponto=ponto, alvo=alvo, integral_max=integral_max)
 
 
 def resumo(r):
     pico = r["ang"].max()
     t_pico = r["t"][np.argmax(r["ang"])]
     travou = pico >= LIM_TRAVAR
-    print(f"  ponto={r['ponto']}°  INTEGRAL_MAX={r['integral_max']}  "
-          f"anti-windup-cond={r['anti_windup_condicional']}  "
-          f"-> pico={pico:.1f}° em t={t_pico:.2f}s"
+    print(f"  ponto={r['ponto']}°  INTEGRAL_MAX={r['integral_max']:.0f}"
+          f"  -> pico={pico:.1f}° em t={t_pico:.2f}s"
           + ("  *** TRAVA DE SEGURANCA ACIONADA (>=170) ***" if travou else ""))
 
 
@@ -201,8 +175,10 @@ def main():
     ap.add_argument("--alvo", type=float, default=60.0)
     ap.add_argument("--ponto", type=int, choices=list(PONTOS.keys()), default=60,
                      help="ponto identificado (graus) usado como modelo de planta")
-    ap.add_argument("--integral-max", type=float, default=900.0)
-    ap.add_argument("--anti-windup-condicional", action="store_true")
+    ap.add_argument("--integral-max", type=float, default=INTEGRAL_MAX,
+                    help=f"teto do integral (default: {INTEGRAL_MAX:.0f}, como em pid.c)")
+    ap.add_argument("--comparar", type=float,
+                    help="simula tambem com outro INTEGRAL_MAX e sobrepoe as curvas")
     ap.add_argument("--t-final", type=float, default=15.0)
     ap.add_argument("--planta-variavel", action="store_true",
                      help="planta muda de zeta/wn/K/L com o angulo atual (interpolado "
@@ -221,21 +197,24 @@ def main():
               f"zeta={PONTOS[args.ponto]['zeta']}, wn={PONTOS[args.ponto]['wn']}, "
               f"L={PONTOS[args.ponto]['L']})\n")
 
-    print("Caso atual (pid.c como esta gravado hoje):")
-    r_atual = simular(args.ponto, args.alvo, 900.0, False, args.t_final,
-                       planta_variavel=args.planta_variavel)
+    print("Configuracao de pid.c:")
+    r_atual = simular(args.ponto, args.alvo, args.integral_max, args.t_final,
+                      planta_variavel=args.planta_variavel)
     resumo(r_atual)
 
-    print("\nCandidato (INTEGRAL_MAX menor + anti-windup condicional):")
-    r_novo = simular(args.ponto, args.alvo, args.integral_max, True, args.t_final,
-                      planta_variavel=args.planta_variavel)
-    resumo(r_novo)
+    r_novo = None
+    if args.comparar is not None:
+        print(f"\nComparacao com INTEGRAL_MAX={args.comparar:.0f}:")
+        r_novo = simular(args.ponto, args.alvo, args.comparar, args.t_final,
+                         planta_variavel=args.planta_variavel)
+        resumo(r_novo)
 
     fig, axs = plt.subplots(2, 1, figsize=(9, 8), sharex=True)
-    axs[0].plot(r_atual["t"], r_atual["ang"], label="Atual (INTEGRAL_MAX=900)", color="tab:red")
-    axs[0].plot(r_novo["t"], r_novo["ang"],
-                label=f"Candidato (INTEGRAL_MAX={args.integral_max}, anti-windup cond.)",
-                color="tab:blue")
+    axs[0].plot(r_atual["t"], r_atual["ang"],
+                label=f"pid.c (INTEGRAL_MAX={args.integral_max:.0f})", color="tab:red")
+    if r_novo:
+        axs[0].plot(r_novo["t"], r_novo["ang"],
+                    label=f"INTEGRAL_MAX={args.comparar:.0f}", color="tab:blue")
     axs[0].axhline(args.alvo, color="gray", linestyle="--", label="Alvo")
     axs[0].axhline(LIM_TRAVAR, color="black", linestyle=":", label="LIM_TRAVAR (170°)")
     axs[0].set_ylabel("Angulo (graus)")
@@ -244,10 +223,13 @@ def main():
     axs[0].legend()
     axs[0].grid(True, linestyle=":", alpha=0.6)
 
-    axs[1].plot(r_atual["t"], r_atual["pwm"], label="PWM atual", color="tab:red")
-    axs[1].plot(r_novo["t"], r_novo["pwm"], label="PWM candidato", color="tab:blue")
-    axs[1].plot(r_atual["t"], r_atual["integ"], label="Integral atual", color="tab:red", linestyle="--", alpha=0.6)
-    axs[1].plot(r_novo["t"], r_novo["integ"], label="Integral candidato", color="tab:blue", linestyle="--", alpha=0.6)
+    axs[1].plot(r_atual["t"], r_atual["pwm"], label="PWM", color="tab:red")
+    axs[1].plot(r_atual["t"], r_atual["integ"], label="Integral",
+                color="tab:red", linestyle="--", alpha=0.6)
+    if r_novo:
+        axs[1].plot(r_novo["t"], r_novo["pwm"], label="PWM (comparacao)", color="tab:blue")
+        axs[1].plot(r_novo["t"], r_novo["integ"], label="Integral (comparacao)",
+                    color="tab:blue", linestyle="--", alpha=0.6)
     axs[1].set_xlabel("Tempo (s)")
     axs[1].set_ylabel("PWM / Integral")
     axs[1].legend()

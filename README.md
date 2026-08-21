@@ -1,81 +1,130 @@
-# 🚁 Controle de Aeropêndulo com STM32 (Blue Pill)
+# Aeropêndulo com STM32 — Controle de Ângulo por PID
 
-Este projeto implementa um sistema de controle de tempo real para um Aeropêndulo (um pêndulo acionado por um motor com hélice). O sistema utiliza um microcontrolador **STM32F103C8T6 (Blue Pill)** para manter a haste em ângulos pré-determinados através de uma malha fechada de controle que combina **Feedforward de Gravidade** e um **Controlador PID (Tipo B)**.
+Projeto PIBIC de Engenharia Elétrica. Um braço articulado acionado por
+motor/hélice é levado a um ângulo de referência e mantido nele por um
+**controlador PID puro**, rodando numa **STM32F103C8 (Blue Pill)** a 50 Hz.
 
-## 🗂️ Mapa do Repositório
+O memorial de projeto — identificação da planta, sintonia, ensaios e limitações
+— está em **[`docs/projeto_pid.md`](docs/projeto_pid.md)**.
 
-A estrutura do projeto foi desenvolvida utilizando a extensão PlatformIO. O código está modularizado dividindo as responsabilidades de Hardware, Lógica de Aplicação e Controle.
+---
+
+## Como o controle funciona
+
+**1. Medição do ângulo.** Encoder incremental em quadratura lido por hardware
+pelo TIM2 (1440 contagens/volta = 0,25°/pulso). Como encoder incremental não
+sabe onde é o zero, no boot o **MPU6050** lê a gravidade, calcula o ângulo de
+repouso do braço e grava esse valor como offset — depois disso o acelerômetro
+sai do laço e o controle usa só o encoder.
+
+**2. Tempo real estrito.** O PID **não** roda no `while(1)`: roda dentro da
+interrupção do TIM4, a 50 Hz exatos (`DT = 20 ms`). Isso é o que garante que o
+termo integral tenha um `DT` confiável, imune ao tempo de escrita no display
+I²C. O laço principal só cuida do OLED e da telemetria.
+
+**3. Identificação da planta.** A resposta ao degrau em malha aberta é de 2ª
+ordem subamortecida (ζ ≈ 0,13–0,17), não uma curva em "S". ζ e ωₙ foram
+extraídos por **decremento logarítmico** em cada ponto de operação. A queda de
+ωₙ com o ângulo (8,38 → 5,83 rad/s) confirma a linearização
+`ωₙ = √(mgL·cos θ₀ / I)`.
+
+**4. Sintonia por Ziegler-Nichols Método 2.** O Método 1 (curva de reação) foi
+descartado por estar fora da faixa de validade — devolve `L` negativo, e daí
+`Kp` negativo, numa planta subamortecida. O Método 2 calcula `Ku` e `Tu` a
+partir do modelo identificado; projeta-se no pior ponto da faixa (30°, menor
+`Ku`) para cobrir todos os ângulos com **um único jogo de ganhos, sem
+escalonamento**:
+
+| | Kp | Ki | Kd | N | DT |
+|---|---|---|---|---|---|
+| Linha *some overshoot* | 0,8138 | 2,3589 | 0,1870 | 50 | 20 ms |
+
+Verificado em frequência contra todos os pontos identificados: margem de fase
+acima de **93°** e margem de ganho acima de **13,9 dB** em toda a faixa.
+
+**5. Detalhes de implementação que importam.** Derivativo sobre a **medição**
+(`−Kd·θ̇`) e não sobre o erro, para não dar chute de PWM a cada mudança de
+setpoint; filtro do derivativo com `N·DT = 1` (o polo cai em zero — derivativo
+mais rápido possível sem oscilar); anti-windup por **clamping dinâmico**
+(Åström & Hägglund), em que o integral é limitado pela folga que P e D deixam
+até os limites do atuador.
+
+**6. Segurança.** Acima de 130° a saída é reduzida; acima de 160° o motor
+desliga e o integral zera; acima de 170° o sistema trava e exige reset.
+
+**Resultado:** partida monotônica e sem oscilação, erro de regime abaixo de 2°
+em toda a faixa de 30° a 100°, e recuperação de perturbações manuais fortes
+(até 131°) sem oscilação sustentada.
+
+---
+
+## Modos de operação
+
+Trocados em `src/main.c` pela constante `MODO_ATUAL`:
+
+* **`MODO_MALHA_ABERTA`** — aplica um PWM fixo direto no motor, sem PID. Usado
+  para levantar a curva PWM × ângulo e os ensaios de degrau da identificação.
+* **`MODO_MALHA_FECHADA`** — o PID assume. O alvo vem do código
+  (`SETPOINT_CODIGO`, constante `ALVO_GRAUS`) ou do potenciômetro em PA4
+  (`SETPOINT_POTENCIOMETRO`).
+
+---
+
+## Ligações
+
+| Componente | Pinos | Observação |
+|---|---|---|
+| Encoder | PA0 (A), PA1 (B) | TIM2 em modo encoder, quadratura x4 |
+| MPU6050 | PB6 (SCL), PB7 (SDA) | I2C1, uso rápido só no boot |
+| Display OLED | PB10 (SCL), PB11 (SDA) | I2C2 separado — o I²C do OLED é lento |
+| Motor (HW-517) | PA6 | PWM de 1 kHz pelo TIM3, escala 0–1000 |
+| Potenciômetro | PA4 | ADC1, setpoint manual de −90° a +90° |
+| Telemetria | PA9 (TX) | UART1 a 115200 bps |
+| LED | PC13 | onboard, pisca a cada volta do laço |
+
+---
+
+## Estrutura
 
 ```text
-PENDULO/
-│
-├── lib/                        # Bibliotecas de terceiros (Drivers I2C)
-│   ├── MPU6050/                # Driver do acelerômetro/giroscópio
-│   │   ├── MPU6050.c
-│   │   └── MPU6050.h
-│   └── SSD1306/                # Driver do display OLED
-│       ├── ssd1306.c
-│       └── ssd1306.h
-│
-├── src/                        # Código-fonte do projeto
-│   ├── aeropendulo.c / .h      # Lógica de negócio, conversão de ângulos e display
-│   ├── hardware.c / .h         # Configuração HAL (Clocks, Timers, I2C, ADC, GPIO)
-│   ├── main.c                  # Ponto de entrada, loop principal e seleção de modos
-│   ├── motor.c / .h            # Controle do driver MOSFET HW-517 via PWM
-│   └── pid.c / .h              # Matemática do controlador PID e Feedforward
-│
-└── platformio.ini              # Configurações de compilação da placa STM32
-
+pendulo/
+├── docs/
+│   ├── projeto_pid.md            # memorial: identificação, sintonia, ensaios
+│   └── TCC_Alexsandro_Barros_2019.pdf
+├── lib/                          # drivers de terceiros
+│   ├── MPU6050/
+│   └── SSD1306/
+├── src/
+│   ├── main.c                    # modos de operação e laço principal
+│   ├── hardware.c / .h           # clock, GPIO, timers, I2C, ADC, UART, IRQ 50 Hz
+│   ├── pid.c / .h                # controlador
+│   ├── motor.c / .h              # driver de PWM do HW-517
+│   ├── aeropendulo.c / .h        # ângulo, display e telemetria
+│   ├── coleta_degrau.py          # grava a telemetria UART em CSV
+│   ├── painel_angulo.py          # painel de ângulo em tela cheia
+│   ├── identifica_zn.py          # identificação da planta + ganhos ZN
+│   ├── analise_margem_multiponto.py  # margem de fase por ponto de operação
+│   ├── simula_partida_degrau.py  # simula o degrau de partida com a lógica de pid.c
+│   ├── Telemetria/               # CSVs dos ensaios
+│   └── Graficos/                 # gráficos gerados
+└── platformio.ini
 ```
 
-## 🔌 Arquitetura de Hardware e Conexões
+---
 
-Para evitar colisões no barramento de comunicação e garantir um tempo de execução perfeito, o hardware foi dividido de forma estratégica:
+## Como usar
 
-* **Motor (HW-517):** Pino **PA6** (PWM gerado pelo Timer 3 a 1 kHz).
-* **Encoder Incremental:** Pinos **PA0 e PA1** (Leitura por hardware via Timer 2 em quadratura).
-* **Sensor MPU6050:** Pinos **PB6 e PB7** (I2C1 - Uso exclusivo e rápido na interrupção).
-* **Display OLED:** Pinos **PB10 e PB11** (I2C2 - Uso lento no loop principal).
-* **Potenciômetro:** Pino **PA4** (ADC1 - Usado para testes e definição de setpoint manual).
+```bash
+pio run                # compila
+pio run -t upload      # grava via ST-Link
 
-## 🧠 Lógica e Matemática do Controle
+python3 src/coleta_degrau.py                            # grava um ensaio em CSV
+python3 src/identifica_zn.py identificar <csv> --pwm 450 # identifica a planta
+python3 src/identifica_zn.py projetar                    # Ku/Tu e ganhos ZN
+python3 src/analise_margem_multiponto.py --pid-do-firmware  # margem de estabilidade
+```
 
-O coração deste projeto não é um simples PID de livro didático. Ele foi adaptado para lidar com a física não-linear da gravidade e proteger o hardware contra travamentos.
-
-### 1. Tempo Real Estrito (50 Hz)
-
-A matemática de controle exige que o tempo entre as amostragens ($DT$) seja constante. O cálculo do PID **não** roda no loop `while(1)`. Ele é executado exclusivamente dentro da interrupção de hardware do Timer 4 (`TIM4_IRQHandler`), garantindo uma frequência cravada de **50 Hz** ($DT = 20ms$), imune aos atrasos de desenho da tela OLED.
-
-### 2. O Feedforward (Compensação da Gravidade)
-
-A força da gravidade atua no pêndulo de forma trigonométrica (mínima em 0°, máxima em 90°). Usar apenas o PID para vencer isso gera lentidão. O sistema usa um modelo levantado em bancada:
-
-
-$$V = \frac{\sin(\theta)}{C}$$
-
-
-Onde $C$ é a constante de calibração do motor. O controlador calcula qual PWM é necessário apenas para "sustentar" o pêndulo no ar no ângulo alvo. Esse valor serve como base.
-
-### 3. PID Tipo B (Derivada na Medição)
-
-A parcela PID apenas corrige o resíduo que o Feedforward não acertou.
-
-* **Proporcional ($K_p$):** Atua sobre o erro atual.
-* **Integral ($K_i$) com Anti-windup:** Limitado para não acumular erros gigantescos, serve apenas para zerar o erro estacionário.
-* **Derivativo ($K_d$) sobre o Ângulo:** O termo derivativo não reage ao Erro, mas sim à velocidade da haste física. Isso evita que o motor dê um "tranco" (Derivative Kick) quando o usuário muda o alvo bruscamente, atuando puramente como um amortecedor contra perturbações externas ("tapas").
-
-## ⚖️ Calibração Automática do Encoder (Sensor Fusion)
-
-Encoders incrementais são excelentes e rápidos, mas não sabem onde é o "Zero" quando a placa é ligada. Para resolver isso, usamos o **MPU6050** (Acelerômetro) na inicialização:
-
-1. Ao ligar, o MPU6050 lê a gravidade e calcula o ângulo real da haste (Pitch) em repouso.
-2. Esse ângulo é convertido em pulsos de encoder.
-3. O valor é salvo como um `offset_inicial`.
-A partir daí, o MPU6050 é ignorado para o controle principal e o sistema passa a confiar na velocidade e precisão absurda do Encoder, mas agora com uma referência absoluta confiável!
-
-## 🎮 Modos de Operação
-
-O sistema possui dois modos que podem ser alternados no arquivo `main.c` mudando a constante `MODO_ATUAL`:
-
-* **`MODO_MALHA_ABERTA`:** Desliga a matemática do PID. Aplica um PWM bruto, contínuo e fixo (ex: `PWM_45_GRAUS`) diretamente ao motor. Útil para extrair a constante $C$ do motor e levantar a curva de tensão vs. ângulo em regime permanente.
-* **`MODO_MALHA_FECHADA`:** O PID assume o controle. O display passa a mostrar os dados de telemetria e o sistema aciona seus gatilhos de segurança (reduzindo a potência em ângulos > 130° e cortando o motor em ângulos perigosos). O alvo pode ser definido no próprio código (`SETPOINT_CODIGO`) ou variado em tempo real girando o potenciômetro físico (`SETPOINT_POTENCIOMETRO`).
+Antes de qualquer ensaio, seguir o protocolo da seção 7 de
+[`docs/projeto_pid.md`](docs/projeto_pid.md) — em especial: **soltar o braço e
+ligar a fonte do motor antes ou junto com a placa**, senão o integrador carrega
+com o motor parado e o braço dá um salto na partida.
