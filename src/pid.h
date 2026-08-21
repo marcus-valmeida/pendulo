@@ -1,53 +1,30 @@
-/**
-  ******************************************************************************
-  * @file    pid.h
-  * @brief   Controlador PID de posicao para o Aeropendulo.
-  *          Lê do aeropendulo.c (angulo) e ESCREVE no motor.c (PWM).
-  *
-  *  ESTRATEGIA:
-  *    - PID completo (P + I + D) para evitar os oscilações.
-  *    - Seguranca em 3 estagios (em modulo, vale p/ + e -):
-  *        |ang| >= 150  -> corta 20% da potencia atual
-  *        |ang| >= 170  -> desliga o motor
-  *        |ang| >= 180  -> trava por desequilibrio (exige reset)
-  *    - Setpoint via codigo OU via potenciometro (0 ohm=-90, 4.7k=+90).
-  ******************************************************************************
-  */
-
+/* pid.h — controlador PID de posicao. Le o angulo em aeropendulo.c e
+ * escreve o PWM em motor.c. Roda na interrupcao de 50 Hz do TIM4. */
 #ifndef PID_H
 #define PID_H
 
 #include "stm32f1xx_hal.h"
 
-/* ---------------------------------------------------------------------------
- * Fonte do setpoint (angulo desejado).
- * -------------------------------------------------------------------------  */
+/* De onde vem o angulo desejado. */
 typedef enum {
-    SETPOINT_CODIGO = 0,   // alvo definido por PID_SetAlvo() no codigo
-    SETPOINT_POTENCIOMETRO // alvo lido do potenciometro (PA4)
+    SETPOINT_CODIGO = 0,    // definido por PID_SetAlvo()
+    SETPOINT_POTENCIOMETRO  // lido do potenciometro em PA4
 } FonteSetpoint;
 
-/* ---------------------------------------------------------------------------
- * API do controlador.
- * -------------------------------------------------------------------------  */
-
-/* Inicializa o PID (zera memoria interna). Chamar uma vez no main. */
+/* Zera a memoria interna do controlador. Chamar uma vez, antes de ligar a
+ * interrupcao de controle. */
 void PID_Init(void);
 
-/* Escolhe se o alvo vem do codigo ou do potenciometro.                       */
 void PID_SetFonte(FonteSetpoint fonte);
-
-/* Define o angulo alvo em graus (usado quando a fonte e SETPOINT_CODIGO).    */
 void PID_SetAlvo(float angulo_alvo);
 
-/* Executa um ciclo do controlador. Chamar periodicamente no loop (ex: 20ms).
- * Le o angulo atual, calcula o PID, aplica seguranca e comanda o motor.      */
+/* Um ciclo do controlador: le o angulo, calcula PID, aplica os estagios de
+ * seguranca e comanda o motor. Chamado pela interrupcao de 50 Hz. */
 void PID_Atualizar(void);
 
-/* Getters para exibir no display.                                            */
-float   PID_GetAlvo(void);       // angulo alvo atual (graus)
-float   PID_GetErro(void);       // erro atual (graus)
-int32_t PID_GetSaida(void);      // PWM aplicado no motor (0-1000)
-uint8_t PID_GetTravado(void);    // 1 se travou por desequilibrio (>180)
+/* Getters para o display e a telemetria. */
+float   PID_GetAlvo(void);     // alvo atual (graus)
+int32_t PID_GetSaida(void);    // PWM aplicado (0-1000)
+uint8_t PID_GetTravado(void);  // 1 se travou por desequilibrio
 
 #endif /* PID_H */

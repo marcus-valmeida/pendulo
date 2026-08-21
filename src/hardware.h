@@ -1,42 +1,29 @@
-/**
-  ******************************************************************************
-  * @file    hardware.h
-  * @brief   Configuracao de hardware do Aeropendulo - declaracoes.
-  *          Aqui ficam os prototipos das funcoes que configuram o chip.
-  ******************************************************************************
-  */
+/* hardware.h — perifericos: clock, GPIO, timers, I2C, ADC e UART. */
 #ifndef HARDWARE_H
 #define HARDWARE_H
 
 #include "stm32f1xx_hal.h"
 
-/* ---------------------------------------------------------------------------
- * Handlers dos perifericos.
- * DEFINIDOS em main.c — referenciados (extern) por hardware.c e aeropendulo.c
- * ------------------------------------------------------------------------- */
-extern TIM_HandleTypeDef htim2;   // Timer 2 — modo Encoder (PA0/PA1)
-extern I2C_HandleTypeDef hi2c1;   // I2C1 — MPU6050 (PB6/PB7)
-extern TIM_HandleTypeDef htim3;   // Timer 3 — PWM para o driver HW-517 (PA6)
-extern ADC_HandleTypeDef hadc1;   // ADC1 — leitura do potenciometro (PA4)
-extern TIM_HandleTypeDef htim4;   // Timer 4 — interrupcao de controle 50Hz
-extern I2C_HandleTypeDef hi2c2;   // I2C2 — display OLED (PB10/PB11)
-extern UART_HandleTypeDef huart1; // UART1 — Transmissao para o PC (PA9)
+/* Handlers definidos em main.c e usados por todos os modulos. */
+extern TIM_HandleTypeDef  htim2;   // encoder (PA0/PA1)
+extern TIM_HandleTypeDef  htim3;   // PWM do motor (PA6)
+extern TIM_HandleTypeDef  htim4;   // base de tempo do controle (50 Hz)
+extern I2C_HandleTypeDef  hi2c1;   // MPU6050 (PB6/PB7)
+extern I2C_HandleTypeDef  hi2c2;   // OLED (PB10/PB11)
+extern ADC_HandleTypeDef  hadc1;   // potenciometro (PA4)
+extern UART_HandleTypeDef huart1;  // telemetria (PA9)
 
-/* ---------------------------------------------------------------------------
- * API de hardware — unica funcao que a main.c precisa chamar.
- * Internamente ela chama clock, GPIO, TIM2 e I2C na ordem correta.
- * ------------------------------------------------------------------------- */
-
-/* Inicializa todo o hardware do chip (clock, LED, encoder, I2C). */
+/* Inicializa todos os perifericos na ordem correta. Unica chamada do main. */
 void Hardware_Init(void);
 
-/* Envia uma string de texto via UART para o PC */
+/* Envia uma string pela UART1 (bloqueante, timeout de 100 ms). */
 void Hardware_EnviarTexto(const char *texto);
 
-/* Inicia a interrupcao de controle a 50Hz (chamar depois do PID_Init). */
+/* Liga a interrupcao de 50 Hz que executa PID_Atualizar(). Chamar depois de
+ * PID_Init() — antes disso o controlador ainda nao tem estado valido. */
 void Hardware_IniciarControle50Hz(void);
 
-/* Chamada em caso de erro critico — trava o sistema com interrupcoes off. */
+/* Falha critica de hardware: trava o sistema com as interrupcoes desligadas. */
 void Error_Handler(void);
 
 #endif /* HARDWARE_H */

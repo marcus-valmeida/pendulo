@@ -1,22 +1,12 @@
-/**
-  ******************************************************************************
-  * @file    aeropendulo.c
-  * @brief   Camada de aplicacao do Aeropendulo - logica e calculos.
-  ******************************************************************************
-  */
+/* aeropendulo.c — camada de aplicacao: angulo, display OLED e telemetria. */
 
-/* USER CODE BEGIN Includes */
 #include "aeropendulo.h"
+#include "hardware.h"
 #include "ssd1306.h"
 #include "MPU6050.h"
 #include <stdio.h>
 #include <math.h>
-/* USER CODE END Includes */
-
-/* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
-extern TIM_HandleTypeDef htim2;
-extern I2C_HandleTypeDef hi2c2;
+#include <stdlib.h>
 
 // Resolucao: 360 pulsos/volta x 4 (quadratura TI12) = 1440 contagens/volta.
 static const float RESOLUCAO_ENCODER = 1440.0f;
@@ -24,13 +14,10 @@ static const float RESOLUCAO_ENCODER = 1440.0f;
 // Offset calculado uma unica vez na inicializacao pelo MPU.
 static int16_t offset_inicial = 0;
 
+/* Buffer unico reaproveitado por todas as telas do OLED. */
 static char linha[24];
-/* USER CODE END PV */
 
-/* Prototipos privados ------------------------------------------------------*/
-static float calcular_pitch(float Ax, float Ay, float Az);
-
-/* -------- Funcao privada: calcula pitch a partir dos dados do MPU --------- */
+/* Pitch a partir do acelerometro do MPU6050. */
 static float calcular_pitch(float Ax, float Ay, float Az) {
     // Sensor de cabeca para baixo: desloca -180 para 0 e corrige o sentido.
     float pitch_bruto = atan2f(-Ax, Az) * (180.0f / 3.14159265f);
@@ -42,7 +29,7 @@ static float calcular_pitch(float Ax, float Ay, float Az) {
     return pitch_corrigido;
 }
 
-/* ------------------------- Inicializacao do sistema ----------------------- */
+/* Encoder ligado + tela de abertura. --------------------------------------- */
 void Aeropendulo_Init(void) {
     HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
 
@@ -56,7 +43,7 @@ void Aeropendulo_Init(void) {
     HAL_Delay(800);
 }
 
-/* ---------- Inicializacao do MPU + calibracao do encoder ----------------- */
+/* MPU6050 + calibracao do zero do encoder pelo angulo de repouso. ---------- */
 void Aeropendulo_InitMPU(void) {
     float Ax, Ay, Az;
 
@@ -87,26 +74,22 @@ void Aeropendulo_InitMPU(void) {
     HAL_Delay(1000);
 }
 
-/* ----------------------- Leitura bruta do encoder ------------------------- */
 int16_t Aeropendulo_LerContagem(void) {
     // Aplica o offset calculado na inicializacao (encoder parte do angulo real).
     return (int16_t)__HAL_TIM_GET_COUNTER(&htim2) + offset_inicial;
 }
 
-/* ------------------- Conversao de contagem para angulo -------------------- */
 float Aeropendulo_LerAngulo(void) {
     int16_t contagem = Aeropendulo_LerContagem();
     return ((float)contagem * 360.0f) / RESOLUCAO_ENCODER;
 }
 
-/* ---------------------- Leitura do pitch pelo MPU ------------------------- */
 float Aeropendulo_LerPitch(void) {
     float Ax, Ay, Az;
     MPU6050_Read_Accel(&Ax, &Ay, &Az);
     return calcular_pitch(Ax, Ay, Az);
 }
 
-/* ------------- Mostra o ensaio de MALHA ABERTA (tensao x angulo) --------- */
 void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao) {
     float angulo = Aeropendulo_LerAngulo();
     float mpu    = Aeropendulo_LerPitch();
@@ -131,23 +114,20 @@ void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao) {
     SSD1306_UpdateScreen();
 }
 
+/* Linha CSV "tempo_ms,angulo,alvo" pela UART. Os floats sao quebrados em
+ * inteiro + centesimos porque o %f do newlib-nano custa caro no laco. */
 void Aeropendulo_TransmitirTelemetria(uint32_t tempo_ms, float angulo_real, float alvo) {
     char buffer_tx[64];
-    
-    // Quebra o angulo real (float -> int + decimal)
-    int int_ang = (int)angulo_real;
-    int dec_ang = (int)((fabsf(angulo_real) - abs(int_ang)) * 100);
-    
-    // Quebra o alvo (float -> int + decimal)
+
+    int int_ang  = (int)angulo_real;
+    int dec_ang  = (int)((fabsf(angulo_real) - abs(int_ang)) * 100);
     int int_alvo = (int)alvo;
     int dec_alvo = (int)((fabsf(alvo) - abs(int_alvo)) * 100);
 
-    // Formato CSV: tempo, angulo_real, alvo
     sprintf(buffer_tx, "%lu,%d.%02d,%d.%02d\r\n", tempo_ms, int_ang, dec_ang, int_alvo, dec_alvo);
     Hardware_EnviarTexto(buffer_tx);
 }
 
-/* ------------------ Mostra os dados do controle no display --------------- */
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado) {
     SSD1306_Clear();

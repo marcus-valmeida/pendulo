@@ -1,11 +1,5 @@
-/**
-  ******************************************************************************
-  * @file    ssd1306.c
-  * @brief   Driver minimo para display OLED SSD1306 (128x64) via I2C - STM32 HAL
-  *          Coloque em Core/Src.
-  *          Fonte 7x10 (subconjunto ASCII imprimivel 32..126).
-  ******************************************************************************
-  */
+/* ssd1306.c — driver minimo do OLED SSD1306 (128x64) por I2C, STM32 HAL.
+ * Fonte 7x10 (ASCII imprimivel 32..126). */
 #include "ssd1306.h"
 #include <string.h>
 

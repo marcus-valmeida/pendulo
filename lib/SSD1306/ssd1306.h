@@ -1,10 +1,4 @@
-/**
-  ******************************************************************************
-  * @file    ssd1306.h
-  * @brief   Driver minimo para display OLED SSD1306 (128x64) via I2C
-  *          Para STM32 HAL. Coloque em Core/Inc.
-  ******************************************************************************
-  */
+/* ssd1306.h — driver minimo do OLED SSD1306 (128x64) por I2C, STM32 HAL. */
 #ifndef SSD1306_H
 #define SSD1306_H
 

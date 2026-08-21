@@ -1,43 +1,32 @@
-/**
-  ******************************************************************************
-  * @file    aeropendulo.h
-  * @brief   Camada de aplicacao do Aeropendulo - declaracoes das funcoes.
-  ******************************************************************************
-  */
+/* aeropendulo.h — leitura de angulo, display OLED e telemetria. */
 #ifndef AEROPENDULO_H
 #define AEROPENDULO_H
 
 #include "stm32f1xx_hal.h"
 
-/* ---------------------------------------------------------------------------
- * API do Aeropendulo - funcoes publicas.
- * ------------------------------------------------------------------------- */
-
-/* Inicializa encoder e display OLED (tela de abertura). */
+/* Liga o encoder e mostra a tela de abertura. */
 void Aeropendulo_Init(void);
 
-/* Inicializa o MPU6050 e calibra o encoder pelo angulo inicial. */
+/* Inicializa o MPU6050 e calibra o zero do encoder pelo angulo de repouso. */
 void Aeropendulo_InitMPU(void);
 
-/* Le o contador bruto do encoder (em pulsos). Pode ser negativo. */
+/* Contagem bruta do encoder, em pulsos (pode ser negativa). */
 int16_t Aeropendulo_LerContagem(void);
 
-/* Converte a contagem do encoder em angulo (graus). */
+/* Angulo do braco em graus — esta e a medida usada pelo controle. */
 float Aeropendulo_LerAngulo(void);
 
-/* Retorna o pitch atual lido pelo MPU6050 (graus). */
+/* Pitch em graus lido pelo MPU6050 — so referencia visual apos o boot. */
 float Aeropendulo_LerPitch(void);
 
-/* Mostra o ensaio de MALHA ABERTA: tensao, angulo e MPU a partir do PWM      */
+/* Tela do ensaio de malha aberta (PWM, tensao, angulo, MPU). */
 void Aeropendulo_MostrarMalhaAberta(int32_t pwm, float tensao);
 
-/* Mostra os dados do controle em MALHA FECHADA (PID) no display OLED.
- *   alvo, angulo, mpu, pwm.
- *   travado - 1 se o sistema travou por desequilibrio */
+/* Tela do controle em malha fechada; travado = 1 mostra o aviso de falha. */
 void Aeropendulo_MostrarControle(float alvo, float angulo, float mpu,
                                  int32_t pwm, uint8_t travado);
 
-/* Transmite dados de telemetria via UART para o PC (uso com script Python) */
+/* Envia "tempo_ms,angulo,alvo" pela UART (lido por src/coleta_degrau.py). */
 void Aeropendulo_TransmitirTelemetria(uint32_t tempo_ms, float angulo_real, float alvo);
 
 #endif /* AEROPENDULO_H */
